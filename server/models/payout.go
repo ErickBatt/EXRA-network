@@ -32,19 +32,34 @@ type PayoutPrecheck struct {
 }
 
 type PayoutRequest struct {
-	ID                string    `json:"id"`
-	DeviceID          string    `json:"device_id"`
-	RecipientWallet   string    `json:"recipient_wallet"`
-	AmountUSD         float64   `json:"amount_usd"`
-	GasFeeChain       float64   `json:"gas_fee_chain"`
-	StorageFeeChain   float64   `json:"storage_fee_chain"`
-	TotalFeeChain     float64   `json:"total_fee_chain"`
-	NetAmountUSD      float64   `json:"net_amount_usd"`
-	WalletInitialized bool      `json:"wallet_initialized"`
-	Status            string    `json:"status"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                string     `json:"id"`
+	DeviceID          string     `json:"device_id"`
+	RecipientWallet   string     `json:"recipient_wallet"`
+	AmountUSD         float64    `json:"amount_usd"`
+	GasFeeChain       float64    `json:"gas_fee_chain"`
+	StorageFeeChain   float64    `json:"storage_fee_chain"`
+	TotalFeeChain     float64    `json:"total_fee_chain"`
+	NetAmountUSD      float64    `json:"net_amount_usd"`
+	WalletInitialized bool       `json:"wallet_initialized"`
+	Status            string     `json:"status"`
+	// Fulfilment fields populated by AdminMarkPayoutPaid once the off-ramp
+	// (or, eventually, an on-chain transfer) settles. nil until then.
+	TxHash         *string    `json:"tx_hash,omitempty"`
+	PayoutProvider *string    `json:"payout_provider,omitempty"`
+	PaidAt         *time.Time `json:"paid_at,omitempty"`
+	PayoutNote     *string    `json:"payout_note,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
+
+// ErrPayoutNotApproved is returned when an operator tries to mark a payout
+// as paid before it has been approved. We deliberately do not allow
+// pending → paid in one step so the approval audit trail is preserved.
+var ErrPayoutNotApproved = errors.New("payout must be in 'approved' status before it can be marked paid")
+
+// ErrPayoutNotFound — distinct from a generic SQL error so handlers can
+// reply with 404 instead of 500.
+var ErrPayoutNotFound = errors.New("payout not found")
 
 type OracleMintItem struct {
 	ID            int64   `json:"id"`
@@ -232,9 +247,91 @@ func UpdatePayoutStatus(id string, status string) error {
 	return err
 }
 
+// MarkPayoutPaid transitions an `approved` payout into the terminal `paid`
+// state, recording the off-ramp transaction reference. The status check is
+// done in the same UPDATE so two concurrent operators cannot both succeed.
+//
+// txHash is required (the migration's CHECK constraint enforces this); the
+// other audit fields are optional. If no row was updated we look up whether
+// the payout exists at all so the caller can distinguish 404 from 409.
+func MarkPayoutPaid(id, txHash, provider, note string) (*PayoutRequest, error) {
+	if id == "" {
+		return nil, ErrPayoutNotFound
+	}
+	if txHash == "" {
+		return nil, errors.New("tx_hash is required to mark payout as paid")
+	}
+
+	var providerArg, noteArg interface{}
+	if provider != "" {
+		providerArg = provider
+	}
+	if note != "" {
+		noteArg = note
+	}
+
+	res, err := db.DB.Exec(
+		`UPDATE payout_requests
+		 SET status = 'paid',
+		     tx_hash = $1,
+		     payout_provider = COALESCE($2, payout_provider),
+		     payout_note = COALESCE($3, payout_note),
+		     paid_at = NOW(),
+		     updated_at = NOW()
+		 WHERE id = $4 AND status = 'approved'`,
+		txHash, providerArg, noteArg, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		// Either the row doesn't exist or its status is not 'approved'. Look
+		// up which to give the caller a precise error.
+		var status string
+		err := db.DB.QueryRow(`SELECT status FROM payout_requests WHERE id = $1`, id).Scan(&status)
+		if err != nil {
+			return nil, ErrPayoutNotFound
+		}
+		return nil, ErrPayoutNotApproved
+	}
+	return GetPayoutRequest(id)
+}
+
+// GetPayoutRequest returns a single payout including the new fulfilment
+// fields. Used by handlers that want to echo the post-update state.
+func GetPayoutRequest(id string) (*PayoutRequest, error) {
+	var p PayoutRequest
+	err := db.DB.QueryRow(
+		`SELECT id, device_id, recipient_wallet, amount_usd, gas_fee_chain, storage_fee_chain,
+		        total_fee_chain, net_amount_usd, wallet_initialized, status,
+		        tx_hash, payout_provider, paid_at, payout_note,
+		        created_at, updated_at
+		 FROM payout_requests
+		 WHERE id = $1`,
+		id,
+	).Scan(
+		&p.ID, &p.DeviceID, &p.RecipientWallet, &p.AmountUSD,
+		&p.GasFeeChain, &p.StorageFeeChain, &p.TotalFeeChain, &p.NetAmountUSD,
+		&p.WalletInitialized, &p.Status,
+		&p.TxHash, &p.PayoutProvider, &p.PaidAt, &p.PayoutNote,
+		&p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 func ListPayoutRequests(limit int) ([]PayoutRequest, error) {
 	rows, err := db.DB.Query(
-		`SELECT id, device_id, recipient_wallet, amount_usd, gas_fee_chain, storage_fee_chain, total_fee_chain, net_amount_usd, wallet_initialized, status, created_at, updated_at
+		`SELECT id, device_id, recipient_wallet, amount_usd, gas_fee_chain, storage_fee_chain,
+		        total_fee_chain, net_amount_usd, wallet_initialized, status,
+		        tx_hash, payout_provider, paid_at, payout_note,
+		        created_at, updated_at
 		 FROM payout_requests
 		 ORDER BY created_at DESC
 		 LIMIT $1`,
@@ -248,7 +345,13 @@ func ListPayoutRequests(limit int) ([]PayoutRequest, error) {
 	var out []PayoutRequest
 	for rows.Next() {
 		var p PayoutRequest
-		if err := rows.Scan(&p.ID, &p.DeviceID, &p.RecipientWallet, &p.AmountUSD, &p.GasFeeChain, &p.StorageFeeChain, &p.TotalFeeChain, &p.NetAmountUSD, &p.WalletInitialized, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&p.ID, &p.DeviceID, &p.RecipientWallet, &p.AmountUSD,
+			&p.GasFeeChain, &p.StorageFeeChain, &p.TotalFeeChain, &p.NetAmountUSD,
+			&p.WalletInitialized, &p.Status,
+			&p.TxHash, &p.PayoutProvider, &p.PaidAt, &p.PayoutNote,
+			&p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

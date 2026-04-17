@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"exra/middleware"
 	"exra/models"
 	"net/http"
@@ -177,6 +178,59 @@ func AdminApprovePayout(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]any{
 		"request_id": adminRequestID(r),
 		"status":     "approved",
+	}, http.StatusOK)
+}
+
+// POST /api/admin/payout/{id}/mark-paid
+//
+// Marks a previously approved payout as fulfilled, recording the off-ramp
+// transaction hash so the user has a verifiable receipt. The DB constraint
+// rejects rows in any other status, and `MarkPayoutPaid` translates the
+// race-safe UPDATE result into a typed error so we can pick the right HTTP
+// code instead of leaking a generic 500.
+func AdminMarkPayoutPaid(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		jsonError(w, "payout id is required", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		TxHash   string `json:"tx_hash"`
+		Provider string `json:"provider"`
+		Note     string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.TxHash == "" {
+		jsonError(w, "tx_hash is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.TxHash) > 256 || len(req.Provider) > 64 || len(req.Note) > 1024 {
+		jsonError(w, "tx_hash, provider or note exceeds maximum length", http.StatusBadRequest)
+		return
+	}
+
+	updated, err := models.MarkPayoutPaid(id, req.TxHash, req.Provider, req.Note)
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrPayoutNotFound):
+			writeAdminAudit(r, "payout.mark_paid", "payout_requests", id, "error", "not found", nil)
+			jsonError(w, "payout not found", http.StatusNotFound)
+		case errors.Is(err, models.ErrPayoutNotApproved):
+			writeAdminAudit(r, "payout.mark_paid", "payout_requests", id, "error", "not approved", nil)
+			jsonError(w, err.Error(), http.StatusConflict)
+		default:
+			writeAdminAudit(r, "payout.mark_paid", "payout_requests", id, "error", err.Error(), nil)
+			jsonError(w, "failed to mark payout paid: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	writeAdminAudit(r, "payout.mark_paid", "payout_requests", id, "success", "tx="+req.TxHash, nil)
+	jsonResponse(w, map[string]any{
+		"request_id": adminRequestID(r),
+		"payout":     updated,
 	}, http.StatusOK)
 }
 

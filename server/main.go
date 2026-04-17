@@ -126,6 +126,7 @@ func main() {
 	r.HandleFunc("/api/admin/payouts", adminOps(handlers.AdminListPayouts)).Methods("GET")
 	r.HandleFunc("/api/admin/payout/{id}/approve", adminFinance(handlers.AdminApprovePayout)).Methods("POST")
 	r.HandleFunc("/api/admin/payout/{id}/reject", adminFinance(handlers.AdminRejectPayout)).Methods("POST")
+	r.HandleFunc("/api/admin/payout/{id}/mark-paid", adminFinance(handlers.AdminMarkPayoutPaid)).Methods("POST")
 	r.HandleFunc("/api/admin/incidents", adminOps(handlers.AdminIncidents)).Methods("GET")
 	r.HandleFunc("/api/admin/node/freeze", adminMutating(handlers.AdminFreezeNode)).Methods("POST")
 	r.HandleFunc("/api/admin/circuit-breaker", adminOps(handlers.AdminCircuitBreakerState)).Methods("GET")
