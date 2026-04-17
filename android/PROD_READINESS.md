@@ -36,6 +36,18 @@ $env:NODE_SECRET="your_real_secret_here"
 ./gradlew assembleRelease
 ```
 
+## Firebase Activation (Post-Build)
+To enable production observability (Crashlytics & Analytics), follow these steps once you have the `google-services.json` file:
+
+1.  **Place File**: Copy `google-services.json` to `android/app/`.
+2.  **Enable Plugins**: In `android/app/build.gradle`, uncomment the following lines in the `plugins` block:
+    ```gradle
+    // id 'com.google.gms.google-services'
+    // id 'com.google.firebase.crashlytics'
+    ```
+3.  **Enable Code**: In `ExraApplication.kt`, remove the comment marks `/*` and `*/` surrounding the Firebase initialization block.
+4.  **Rebuild**: Run `./gradlew assembleRelease`.
+
 ---
 
 ## 4. Google Play Data Safety Questionnaire

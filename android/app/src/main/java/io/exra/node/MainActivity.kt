@@ -2,6 +2,7 @@ package io.exra.node
 
 import android.Manifest
 import android.content.Context
+import android.content.DialogInterface
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
@@ -32,7 +33,7 @@ class MainActivity : ComponentActivity() {
                 .setTitle("Emulator Detected")
                 .setMessage("EXRA Node can only run on physical devices for security and anti-fraud reasons.")
                 .setCancelable(false)
-                .setPositiveButton("Exit") { _, _ -> finish() }
+                .setPositiveButton("Exit") { _: DialogInterface, _: Int -> finish() }
                 .show()
         }
     }
@@ -43,7 +44,7 @@ class MainActivity : ComponentActivity() {
             MaterialAlertDialogBuilder(this)
                 .setTitle("Background Activity")
                 .setMessage("To ensure high GearScore and stable rewards, EXRA Node needs to run without battery optimizations. Please allow background activity in the next screen.")
-                .setPositiveButton("Configure") { _, _ ->
+                .setPositiveButton("Configure") { _: DialogInterface, _: Int ->
                     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                         data = Uri.parse("package:$packageName")
                     }
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Device Link Request")
             .setMessage("Link this node to Telegram user $name (@$user)?")
-            .setPositiveButton("Approve") { _, _ ->
+            .setPositiveButton("Approve") { _: DialogInterface, _: Int ->
                 val responseIntent = Intent(this, NodeForegroundService::class.java).apply {
                     action = "io.exra.node.ACTION_LINK_RESPONSE"
                     putExtra("request_id", requestId)
@@ -160,7 +161,7 @@ class MainActivity : ComponentActivity() {
                 startService(responseIntent)
                 Toast.makeText(this, "Link approved", Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("Deny") { _, _ ->
+            .setNegativeButton("Deny") { _: DialogInterface, _: Int ->
                 val responseIntent = Intent(this, NodeForegroundService::class.java).apply {
                     action = "io.exra.node.ACTION_LINK_RESPONSE"
                     putExtra("request_id", requestId)

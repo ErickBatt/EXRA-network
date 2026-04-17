@@ -4,10 +4,8 @@ import android.content.Context
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
-import io.novasamatech.substrate_sdk_android.encrypt.keypair.Keypair
-import io.novasamatech.substrate_sdk_android.encrypt.keypair.substrate.Sr25519KeypairFactory
-import io.novasamatech.substrate_sdk_android.encrypt.SignatureWrapper
-import io.novasamatech.substrate_sdk_android.encrypt.junction.Sr25519
+import io.novasama.substrate_sdk_android.encrypt.keypair.KeyPair
+import io.novasama.substrate_sdk_android.extensions.toHexString
 import org.bouncycastle.util.encoders.Hex
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -20,6 +18,7 @@ class IdentityManager(private val context: Context) {
     private val PREFS_NAME = "ExraIdentitySecure"
     private val KEY_PRIV = "priv_key"
     private val KEY_PUB = "pub_key"
+    private val KEY_NONCE = "key_nonce"
 
     fun isEmulator(): Boolean {
         val basicCheck = (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
@@ -47,12 +46,11 @@ class IdentityManager(private val context: Context) {
             "/dev/qemu_pipe",
             "/system/lib/libc_malloc_debug_qemu.so",
             "/sys/qemu_trace",
-            "/proc/tty/drivers" // checking for goldfish
+            "/proc/tty/drivers"
         )
         for (p in probes) {
             if (File(p).exists()) {
                 if (p == "/proc/tty/drivers") {
-                    // Specific check inside goldfish driver info
                     try {
                         if (File(p).readText().contains("goldfish")) return true
                     } catch (e: Exception) { /* ignore */ }
@@ -76,8 +74,7 @@ class IdentityManager(private val context: Context) {
         }
     }
 
-    private var keypair: Keypair? = null
-    private val keypairFactory = Sr25519KeypairFactory()
+    private var keyPair: KeyPair? = null
 
     init {
         loadOrGenerateKeys()
@@ -99,14 +96,18 @@ class IdentityManager(private val context: Context) {
             val prefs = getEncryptedPrefs()
             val privHex = prefs.getString(KEY_PRIV, null)
             val pubHex = prefs.getString(KEY_PUB, null)
+            val nonceHex = prefs.getString(KEY_NONCE, null)
 
             if (privHex == null || pubHex == null) {
                 generateKeys()
             } else {
                 val privateKey = Hex.decode(privHex)
                 val publicKey = Hex.decode(pubHex)
-                keypair = Keypair(publicKey, privateKey)
-                Log.i(TAG, "sr25519 Identity keys loaded from secure storage")
+                val nonce = nonceHex?.let { Hex.decode(it) }
+                
+                // KeyPair from bytes (Substrate SDK style)
+                keyPair = KeyPair(publicKey, privateKey, nonce)
+                Log.i(TAG, "sr25519 Identity keys loaded from secure storage (Production SDK)")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize secure storage: ${e.message}")
@@ -114,49 +115,37 @@ class IdentityManager(private val context: Context) {
         }
     }
 
-    private fun clearLegacyStorage() {
-        try {
-            val oldPrefs = context.getSharedPreferences("ExraIdentity", Context.MODE_PRIVATE)
-            if (oldPrefs.all.isNotEmpty()) {
-                Log.i(TAG, "Clearing legacy insecure storage...")
-                oldPrefs.edit().clear().apply()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to clear legacy storage: ${e.message}")
-        }
-    }
-
     private fun generateKeys() {
-        Log.i(TAG, "Generating new sr25519 identity...")
+        Log.i(TAG, "Generating new production sr25519 identity...")
         try {
+            // Securely generate a 32-byte seed
             val seed = ByteArray(32)
             SecureRandom().nextBytes(seed)
+            val seedHex = seed.toHexString(withPrefix = true)
             
-            val newKeypair = keypairFactory.generate(seed, emptyList())
-            keypair = newKeypair
+            // Use the hardened Silencio/Nova Factory
+            val newKeyPair = KeyPair.Factory.sr25519().generate(seedHex)
+            keyPair = newKeyPair
 
             getEncryptedPrefs().edit()
-                .putString(KEY_PRIV, Hex.toHexString(newKeypair.privateKey))
-                .putString(KEY_PUB, Hex.toHexString(newKeypair.publicKey))
+                .putString(KEY_PRIV, newKeyPair.privateKey.toHexString())
+                .putString(KEY_PUB, newKeyPair.publicKey.toHexString())
+                .putString(KEY_NONCE, newKeyPair.nonce?.toHexString())
                 .apply()
             
-            Log.i(TAG, "New sr25519 identity generated: ${getPublicKeyHex().take(16)}...")
+            Log.i(TAG, "New production identity generated: ${getPublicKeyHex().take(16)}...")
         } catch (e: Exception) {
-            Log.e(TAG, "Key generation failed: ${e.message}")
+            Log.e(TAG, "Production key generation failed: ${e.message}")
         }
     }
 
     fun getPublicKeyHex(): String {
-        return Hex.toHexString(keypair?.publicKey ?: byteArrayOf())
+        return keyPair?.publicKey?.toHexString() ?: ""
     }
 
-    /**
-     * Generates a peaq-compatible DID string from the public key.
-     * Pattern: did:peaq:0x{hex_address}
-     */
     fun getDID(): String {
-        val pubBytes = keypair?.publicKey ?: return ""
-        val address = Hex.toHexString(pubBytes)
+        val address = getPublicKeyHex()
+        if (address.isEmpty()) return ""
         return "did:peaq:0x$address"
     }
 
@@ -166,11 +155,12 @@ class IdentityManager(private val context: Context) {
 
     fun signData(data: ByteArray): String {
         return try {
-            val kp = keypair ?: return ""
-            val sig = Sr25519.sign(kp, data)
-            Hex.toHexString(sig)
+            val kp = keyPair ?: return ""
+            // Use the production-grade sign method
+            val signature = kp.sign(data)
+            signature.toHexString(withPrefix = true)
         } catch (e: Exception) {
-            Log.e(TAG, "Signing failed: ${e.message}")
+            Log.e(TAG, "Production signing failed: ${e.message}")
             ""
         }
     }

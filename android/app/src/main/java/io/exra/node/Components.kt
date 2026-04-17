@@ -32,10 +32,8 @@ fun GlassCard(
             .background(Color.White.copy(alpha = 0.05f))
             .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            content = content
-        ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            content()
         }
     }
 }

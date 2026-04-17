@@ -9,6 +9,7 @@ class ExraApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         
+        /*
         // Initialize Firebase
         try {
             FirebaseApp.initializeApp(this)
@@ -21,5 +22,6 @@ class ExraApplication : Application() {
         // Log basic build info for debugging
         FirebaseCrashlytics.getInstance().setCustomKey("version", BuildConfig.VERSION_NAME)
         FirebaseCrashlytics.getInstance().setCustomKey("build_type", BuildConfig.BUILD_TYPE)
+        */
     }
 }
