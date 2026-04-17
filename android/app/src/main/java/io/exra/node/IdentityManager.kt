@@ -9,13 +9,72 @@ import io.novasamatech.substrate_sdk_android.encrypt.keypair.substrate.Sr25519Ke
 import io.novasamatech.substrate_sdk_android.encrypt.SignatureWrapper
 import io.novasamatech.substrate_sdk_android.encrypt.junction.Sr25519
 import org.bouncycastle.util.encoders.Hex
+import java.security.MessageDigest
 import java.security.SecureRandom
+import android.os.Build
+import android.provider.Settings
+import java.io.File
 
 class IdentityManager(private val context: Context) {
     private val TAG = "IdentityManager"
     private val PREFS_NAME = "ExraIdentitySecure"
     private val KEY_PRIV = "priv_key"
     private val KEY_PUB = "pub_key"
+
+    fun isEmulator(): Boolean {
+        val basicCheck = (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.HARDWARE.contains("goldfish")
+                || Build.HARDWARE.contains("ranchu")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || Build.PRODUCT.contains("sdk_google")
+                || Build.PRODUCT.contains("google_sdk")
+                || Build.PRODUCT.contains("sdk")
+                || Build.PRODUCT.contains("sdk_x86")
+                || Build.PRODUCT.contains("vbox86p")
+                || Build.PRODUCT.contains("emulator")
+                || Build.PRODUCT.contains("simulator")
+
+        return basicCheck || checkFilesystemProbes()
+    }
+
+    private fun checkFilesystemProbes(): Boolean {
+        val probes = arrayOf(
+            "/dev/qemu_pipe",
+            "/system/lib/libc_malloc_debug_qemu.so",
+            "/sys/qemu_trace",
+            "/proc/tty/drivers" // checking for goldfish
+        )
+        for (p in probes) {
+            if (File(p).exists()) {
+                if (p == "/proc/tty/drivers") {
+                    // Specific check inside goldfish driver info
+                    try {
+                        if (File(p).readText().contains("goldfish")) return true
+                    } catch (e: Exception) { /* ignore */ }
+                } else {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fun getHardwareFingerprint(): String {
+        val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "no_id"
+        val buildInfo = "${androidId}${Build.BOARD}${Build.BRAND}${Build.DEVICE}${Build.HARDWARE}${Build.MANUFACTURER}${Build.MODEL}${Build.PRODUCT}"
+        return try {
+            val md = MessageDigest.getInstance("SHA-256")
+            val digest = md.digest(buildInfo.toByteArray())
+            Hex.toHexString(digest)
+        } catch (e: Exception) {
+            "unknown_hw_hash"
+        }
+    }
 
     private var keypair: Keypair? = null
     private val keypairFactory = Sr25519KeypairFactory()
@@ -97,8 +156,7 @@ class IdentityManager(private val context: Context) {
      */
     fun getDID(): String {
         val pubBytes = keypair?.publicKey ?: return ""
-        // Use SS58-like or simple hex for peaq DID address part
-        val address = Hex.toHexString(pubBytes).take(40) // Take 20 bytes equivalent
+        val address = Hex.toHexString(pubBytes)
         return "did:peaq:0x$address"
     }
 

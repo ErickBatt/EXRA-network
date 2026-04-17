@@ -11,8 +11,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
-        android:allowBackup="true"
-        android:icon="@android:mipmap/sym_def_app_icon"
+        android:name=".ExraApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="Exra"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">

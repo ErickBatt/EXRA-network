@@ -68,10 +68,10 @@
 **Цель:** Масштаб, защита от сибилов, первые честные пользователи, реальные деньги, реальные токены на peaq.
 
 **Что нужно до запуска v1:**
-- [ ] **Chain:** peaq Pallet deploy в testnet.
+- [x] **Chain:** peaq Pallet deploy в testnet. (Done 2026-04-16)
 - [x] **Oracles:** Реализовать 3 Oracle-ноды на Go + Redis PubSub (multisig extrinsic, daily batch). (Done 2026-04-16)
 - [x] **Anti-Fraud:** Реализовать логику P2P Feeders и Canary-проверок (10k sim nodes тесты). (Done 2026-04-16)
-- [ ] **DID & Security:** Android peaq SDK (DID подписи), UI с timelock bar (24h для анонимов).
+- [x] **DID & Security:** Android peaq SDK (DID подписи), UI с timelock bar (24h для анонимов). (Done 2026-04-17)
 - [x] **Наследие:** Header Auth и TOCTOU защита выплат (SELECT FOR UPDATE) работают.
 
 ### ФАЗА 2 — Маркетплейс + TMA (Completed April 2026)

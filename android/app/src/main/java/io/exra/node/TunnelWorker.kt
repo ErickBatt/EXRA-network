@@ -16,7 +16,8 @@ class TunnelWorker(
     private val apiUrl: String,
     private val sessionId: String,
     private val targetHost: String,
-    private val targetPort: Int
+    private val targetPort: Int,
+    private val identityManager: PeaqIdentityWrapper
 ) {
     private val TAG = "TunnelWorker"
 
@@ -45,12 +46,19 @@ class TunnelWorker(
                 s
             }
 
+            val timestamp = System.currentTimeMillis() / 1000
+            val did = identityManager.getDid()
+            val signature = identityManager.sign("$sessionId:$timestamp")
+
             val out = serverSocket.getOutputStream()
-            // Manual HTTP Upgrade request to hijack the connection for raw TCP tunnel
+            // Manual HTTP Upgrade request with DePIN signatures
             val request = "GET /api/node/tunnel?session_id=$sessionId HTTP/1.1\r\n" +
                     "Host: $serverHost\r\n" +
                     "Upgrade: tcp-tunnel\r\n" +
-                    "Connection: Upgrade\r\n\r\n"
+                    "Connection: Upgrade\r\n" +
+                    "X-DID: $did\r\n" +
+                    "X-Timestamp: $timestamp\r\n" +
+                    "X-Signature: $signature\r\n\r\n"
             out.write(request.toByteArray())
             out.flush()
 

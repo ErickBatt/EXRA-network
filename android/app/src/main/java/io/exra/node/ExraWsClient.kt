@@ -89,7 +89,7 @@ class EXRAWsClient(
                             
                             if (sessionId.isNotEmpty() && targetHost.isNotEmpty()) {
                                 CoroutineScope(Dispatchers.IO).launch {
-                                    val worker = TunnelWorker(apiUrl, sessionId, targetHost, targetPort)
+                                    val worker = TunnelWorker(apiUrl, sessionId, targetHost, targetPort, identityManager)
                                     worker.run()
                                 }
                             }
