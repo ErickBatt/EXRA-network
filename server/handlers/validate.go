@@ -62,3 +62,23 @@ func validateFloat(name string, v, min, max float64) error {
 	}
 	return nil
 }
+
+// validateCountry checks that a country code looks like an ISO-3166 alpha
+// code: ASCII letters only, length within maxCountryLen. The 8-char upper
+// bound accommodates internal aggregate keys (e.g. "LATAM") rather than
+// strict 2-letter codes.
+func validateCountry(c string) error {
+	c = strings.TrimSpace(c)
+	if c == "" {
+		return fmt.Errorf("country is required")
+	}
+	if len(c) > maxCountryLen {
+		return fmt.Errorf("country exceeds maximum length of %d", maxCountryLen)
+	}
+	for _, r := range c {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+			return fmt.Errorf("country must contain only ASCII letters")
+		}
+	}
+	return nil
+}

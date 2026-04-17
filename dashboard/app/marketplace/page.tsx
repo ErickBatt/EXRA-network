@@ -191,13 +191,33 @@ export default function MarketplacePage() {
     } catch (e) { console.error(e); }
   };
 
+  // Mirrors the backend's validateCountry/validateFloat in handlers so we
+  // surface the same constraints inline instead of round-tripping a 400.
+  // Returns null when the form is valid.
+  const offerValidationError = (): string | null => {
+    const country = (offerCountry || '').trim();
+    if (!country) return 'Country is required';
+    if (country.length > 8) return 'Country code is too long';
+    if (!/^[A-Za-z]+$/.test(country)) return 'Country must contain only letters';
+    if (!Number.isFinite(offerTargetGb) || offerTargetGb <= 0) return 'Target GB must be greater than 0';
+    if (offerTargetGb > 100_000) return 'Target GB exceeds maximum (100000)';
+    if (!Number.isFinite(offerMaxPrice) || offerMaxPrice <= 0) return 'Max price/GB must be greater than 0';
+    if (offerMaxPrice > 1_000) return 'Max price/GB exceeds maximum (1000)';
+    return null;
+  };
+
   const createOffer = async () => {
     if (!buyer) return;
+    const v = offerValidationError();
+    if (v) {
+      alert(v);
+      return;
+    }
     try {
       await buyerFetch('/api/offers', {
         method: 'POST',
         body: JSON.stringify({
-          country: offerCountry,
+          country: offerCountry.trim(),
           target_gb: offerTargetGb,
           max_price_per_gb: offerMaxPrice
         })
@@ -469,7 +489,22 @@ export default function MarketplacePage() {
                     <div className="search-box-dash" style={{ maxWidth: '100%', marginBottom: '12px' }}>
                       <input type="number" value={offerMaxPrice} onChange={(e) => setOfferMaxPrice(parseFloat(e.target.value) || 0)} />
                     </div>
-                    <button className="btn-hero-primary" onClick={createOffer}>Create offer</button>
+                    {(() => {
+                      const v = offerValidationError();
+                      return (
+                        <>
+                          {v && (
+                            <div style={{ color: 'var(--red, #c44)', fontSize: '11px', marginBottom: '8px' }}>{v}</div>
+                          )}
+                          <button
+                            className="btn-hero-primary"
+                            onClick={createOffer}
+                            disabled={!!v}
+                            style={v ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                          >Create offer</button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 

@@ -12,25 +12,44 @@ import (
 )
 
 // POST /api/offers
+//
+// Validation order matters: we decode and validate the body BEFORE
+// touching middleware.BuyerFromContext, so a malformed request from an
+// unauthenticated path (or a test) gets a precise 400 instead of NPE'ing
+// on a nil buyer. The float guards run through validateFloat so NaN /
+// +Inf cannot slip past the naive `<= 0` check (NaN <= 0 is false in Go).
 func CreateOffer(w http.ResponseWriter, r *http.Request) {
-	buyer := middleware.BuyerFromContext(r)
 	var req struct {
 		Country       string  `json:"country"`
 		TargetGB      float64 `json:"target_gb"`
 		MaxPricePerGB float64 `json:"max_price_per_gb"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request", http.StatusBadRequest)
+		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.TargetGB <= 0 || req.MaxPricePerGB <= 0 {
-		jsonError(w, "target_gb and max_price_per_gb must be > 0", http.StatusBadRequest)
+	if err := validateCountry(req.Country); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.TargetGB > 100_000 || req.MaxPricePerGB > 1_000 {
-		jsonError(w, "target_gb or max_price_per_gb exceeds allowed maximum", http.StatusBadRequest)
+	// Min 0.0001 GB / $0.0001/GB rejects 0 and negative values without
+	// allowing dust-precision overflows. Max bounds preserve the previous
+	// guard against absurd numbers being persisted.
+	if err := validateFloat("target_gb", req.TargetGB, 0.0001, 100_000); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := validateFloat("max_price_per_gb", req.MaxPricePerGB, 0.0001, 1_000); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	buyer := middleware.BuyerFromContext(r)
+	if buyer == nil {
+		jsonError(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
 	o, err := models.CreateOffer(buyer.ID, req.Country, req.TargetGB, req.MaxPricePerGB)
 	if err != nil {
 		jsonError(w, "failed to create offer: "+err.Error(), http.StatusInternalServerError)
