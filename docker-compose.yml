@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # --- Exra Go Backend ---
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # Secrets must be injected at deploy time — do NOT hardcode here.
+      # Use a .env file locally (never commit it), or a secrets manager in production.
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NODE_SECRET=${NODE_SECRET}
+      - PROXY_SECRET=${PROXY_SECRET}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - TON_RPC_URL=${TON_RPC_URL}
+      - TON_API_KEY=${TON_API_KEY}
+      - JETTON_MASTER_ADDRESS=${JETTON_MASTER_ADDRESS}
+      - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
+      - TON_WALLET_ADDRESS=${TON_WALLET_ADDRESS}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://dashboard.exra.network}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - exra-net
+    restart: unless-stopped
+
+  # --- Exra Next.js Dashboard / TMA ---
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=${API_BASE_URL:-https://api.exra.network}
+    depends_on:
+      - server
+    networks:
+      - exra-net
+    restart: unless-stopped
+
+  # --- Redis for horizontal scaling ---
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD} --save 60 1 --loglevel warning
+    networks:
+      - exra-net
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  exra-net:
+    driver: bridge
+
+volumes:
+  redis-data:

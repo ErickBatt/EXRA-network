@@ -1,0 +1,22 @@
+# Build artifacts
+server/exra-server
+android/app/build/
+dashboard/.next/
+dashboard/node_modules/
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.local
+# Deploy artifacts (pre-built packages)
+deploy/dist/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.bak

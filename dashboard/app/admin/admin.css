@@ -1,0 +1,85 @@
+.admin-root {
+  min-height: 100vh;
+  background: #0f0f10;
+  color: #f0f0ee;
+  padding: 20px;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.admin-links a {
+  color: #c8f03c;
+  margin-left: 14px;
+  text-decoration: none;
+}
+
+.admin-card {
+  border: 1px solid #2a2a2d;
+  background: #171719;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.admin-card h3 {
+  margin: 0 0 10px 0;
+}
+
+.admin-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-row input {
+  background: #0f0f10;
+  color: #fff;
+  border: 1px solid #303034;
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 220px;
+}
+
+.admin-row button,
+.table button {
+  border: 1px solid #4d5c1a;
+  background: #1d2310;
+  color: #d7f766;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.error {
+  color: #ff8f8f;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.kv {
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.table .row {
+  display: grid;
+  grid-template-columns: 90px 90px 120px 110px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid #262629;
+  padding: 8px 0;
+  font-size: 13px;
+}
+

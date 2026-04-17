@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@300;400&family=Bebas+Neue&display=swap');
+
+:root {
+  --bg: #0a0a08;
+  --bg2: #111110;
+  --bg3: #1a1a17;
+  --surface: #1f1f1b;
+  --ink: #f0ede6;
+  --ink2: #9e9b92;
+  --ink3: #5a5850;
+  --accent: #c8f03c;
+  --accent2: #a8d020;
+  --accent-dim: rgba(200, 240, 60, 0.1);
+  --border: rgba(240, 237, 230, 0.06);
+  --border2: rgba(240, 237, 230, 0.12);
+  --red: #ff5c5c;
+  --red-dim: rgba(255, 92, 92, 0.1);
+  --green: #4ade80;
+  --green-dim: rgba(74, 222, 128, 0.1);
+  --sidebar: 220px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Instrument Sans', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Common Animations */
+@keyframes fu {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pd {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.7); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(10, 10, 8, 0.3);
+  border-top-color: #0a0a08;
+  animation: spin 0.7s linear infinite;
+}

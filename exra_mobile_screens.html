@@ -1,0 +1,239 @@
+
+<style>
+@keyframes lava1{0%{transform:translateY(0) scaleX(1) scaleY(1);border-radius:50%}25%{transform:translateY(-45px) scaleX(1.1) scaleY(0.94);border-radius:55% 45%}50%{transform:translateY(-140px) scaleX(0.94) scaleY(1.12);border-radius:45% 55%}75%{transform:translateY(-170px) scaleX(1.06) scaleY(0.91);border-radius:50%}90%{transform:translateY(-30px) scaleX(0.97) scaleY(1.06);border-radius:50%}100%{transform:translateY(0) scaleX(1) scaleY(1);border-radius:50%}}
+@keyframes lava2{0%{transform:translateY(0) scaleX(1.05) scaleY(0.96);border-radius:50%}40%{transform:translateY(-120px) scaleX(0.93) scaleY(1.12);border-radius:46% 54%}70%{transform:translateY(-160px) scaleX(1.1) scaleY(0.91);border-radius:55% 45%}100%{transform:translateY(0) scaleX(1.05) scaleY(0.96);border-radius:50%}}
+@keyframes lava3{0%{transform:translateY(0) scale(0.95);border-radius:50%}50%{transform:translateY(-130px) scaleX(1.13) scaleY(0.9);border-radius:52% 48%}100%{transform:translateY(0) scale(0.95);border-radius:50%}}
+@keyframes lava4{0%{transform:translateY(0) scale(1);border-radius:50%}45%{transform:translateY(-90px) scaleX(1.1) scaleY(0.93);border-radius:54% 46%}100%{transform:translateY(0) scale(1);border-radius:50%}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.35}}
+@keyframes tick{0%,100%{opacity:0.7}50%{opacity:1}}
+@keyframes fadecount{0%,100%{opacity:0.6}50%{opacity:1}}
+.phone{background:#0f0f0d;border-radius:38px;border:1.5px solid #2a2a26;width:210px;overflow:hidden;font-family:var(--font-sans)}
+.lava-wrap{position:relative;width:210px;height:250px;background:#0d0b06;overflow:hidden}
+.blob{position:absolute;border-radius:50%;filter:blur(22px)}
+.topbar{background:#0f0f0d;padding:10px 16px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #1e1e1a}
+.logo{font-size:14px;font-weight:500;color:#f0ede6;letter-spacing:0.02em}
+.logo span{color:#c8f03c}
+.pill{display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:2px 8px;font-size:10px}
+.pill-green{background:rgba(74,222,128,0.1);color:#4ade80;border:0.5px solid rgba(74,222,128,0.2)}
+.pill-gray{background:rgba(240,237,230,0.06);color:#9e9b92;border:0.5px solid rgba(240,237,230,0.08)}
+.pill-dot{width:4px;height:4px;border-radius:50%}
+.card-sm{background:#1a1a16;border-radius:10px;border:0.5px solid #2a2a26;padding:9px 11px}
+.label-xs{font-size:9px;color:#5a5850;letter-spacing:0.05em}
+.val-md{font-size:14px;font-weight:500;color:#f0ede6;margin-top:2px}
+.val-accent{color:#c8f03c}
+.nav{display:flex;justify-content:space-around;padding:8px 0 13px;border-top:0.5px solid #1e1e1a;margin-top:auto}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9px}
+.nav-dot-a{width:3px;height:3px;border-radius:50%;background:#c8f03c}
+.nav-dot-i{width:3px;height:3px;border-radius:50%;background:#2a2a26}
+.overlay-tl{position:absolute;top:14px;left:14px;z-index:2}
+.overlay-br{position:absolute;bottom:12px;right:14px;z-index:2;text-align:right}
+.ov-label{font-size:9px;color:rgba(200,240,60,0.6);letter-spacing:0.06em}
+.ov-val{font-size:20px;font-weight:500;color:#c8f03c;line-height:1.1;animation:tick 3s ease-in-out infinite}
+.ov-big{font-size:26px;font-weight:500;color:#e8e4d0;line-height:1;animation:tick 2s ease-in-out infinite}
+.ov-unit{font-size:9px;color:rgba(200,240,60,0.5);letter-spacing:0.04em}
+.stop-btn{background:rgba(240,237,230,0.06);border:0.5px solid #2a2a26;border-radius:12px;padding:11px;text-align:center;font-size:12px;color:#5a5850;font-weight:500}
+.start-btn{background:#c8f03c;border-radius:12px;padding:12px;text-align:center;font-size:12px;color:#0a0a08;font-weight:600}
+.history-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid #1a1a16}
+.tier-badge{display:inline-flex;font-size:9px;padding:1px 6px;border-radius:3px;background:rgba(200,240,60,0.08);color:#c8f03c;border:0.5px solid rgba(200,240,60,0.15);margin-top:3px}
+.ref-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #1a1a16}
+.ref-avatar{width:28px;height:28px;border-radius:8px;background:#1a1a16;border:0.5px solid #2a2a26;display:flex;align-items:center;justify-content:center;font-size:10px;color:#5a5850;flex-shrink:0}
+</style>
+
+<div style="display:flex;gap:16px;justify-content:center;padding:20px 0;flex-wrap:wrap;align-items:flex-start;">
+
+  <!-- ЭКРАН 1: СТАРТ -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+    <span style="font-size:11px;color:var(--color-text-secondary);">1 — старт</span>
+    <div class="phone">
+      <div class="topbar">
+        <span class="logo">ex<span>ra</span></span>
+        <span class="pill pill-gray"><span class="pill-dot" style="background:#5a5850"></span>offline</span>
+      </div>
+      <div class="lava-wrap">
+        <div class="blob" style="width:100px;height:70px;background:rgba(200,240,60,0.15);bottom:-10px;left:20px"></div>
+        <div class="blob" style="width:80px;height:60px;background:rgba(200,240,60,0.1);bottom:-5px;left:110px"></div>
+        <div class="blob" style="width:70px;height:50px;background:rgba(200,240,60,0.12);bottom:-8px;left:65px"></div>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
+          <div style="font-size:11px;color:#3a3a30">устройство не активно</div>
+          <div style="font-size:28px;font-weight:500;color:#2a2a20;line-height:1">0.0</div>
+          <div style="font-size:9px;color:#2a2a20">MB/S</div>
+        </div>
+      </div>
+      <div style="padding:12px 13px 0">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px">
+          <div class="card-sm">
+            <div class="label-xs">СЕГОДНЯ</div>
+            <div class="val-md" style="color:#3a3a30">$0.00</div>
+          </div>
+          <div class="card-sm">
+            <div class="label-xs">ВСЕГО</div>
+            <div class="val-md">$19.94</div>
+          </div>
+        </div>
+        <div class="start-btn" style="margin-bottom:5px">запустить</div>
+        <div style="text-align:center;font-size:9px;color:#3a3a30;margin-bottom:12px">только WiFi и зарядка</div>
+      </div>
+      <div class="nav">
+        <div class="nav-item"><div class="nav-dot-a"></div><span style="color:#c8f03c">главная</span></div>
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">кошелёк</span></div>
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">профиль</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ЭКРАН 2: МАЙНИНГ -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+    <span style="font-size:11px;color:var(--color-text-secondary);">2 — работает</span>
+    <div class="phone">
+      <div class="topbar">
+        <span class="logo">ex<span>ra</span></span>
+        <span class="pill pill-green">
+          <span class="pill-dot" style="background:#4ade80;animation:blink 1.4s ease-in-out infinite"></span>
+          online
+        </span>
+      </div>
+      <div class="lava-wrap" style="background:#0a0b06">
+        <div class="blob" style="width:95px;height:95px;background:rgba(200,240,60,0.4);bottom:-20px;left:20px;animation:lava1 8s ease-in-out infinite"></div>
+        <div class="blob" style="width:75px;height:75px;background:rgba(168,200,30,0.35);bottom:-10px;left:125px;animation:lava2 6.5s ease-in-out infinite 1s"></div>
+        <div class="blob" style="width:85px;height:85px;background:rgba(140,180,20,0.38);bottom:-15px;left:70px;animation:lava3 10s ease-in-out infinite 0.5s"></div>
+        <div class="blob" style="width:55px;height:55px;background:rgba(200,240,60,0.3);bottom:-5px;left:5px;animation:lava4 7s ease-in-out infinite 2s"></div>
+        <div class="overlay-tl">
+          <div class="ov-label">СЕГОДНЯ</div>
+          <div class="ov-val">+$1.24</div>
+        </div>
+        <div class="overlay-br">
+          <div class="ov-big">2.4</div>
+          <div class="ov-unit">MB/S HASHRATE</div>
+        </div>
+      </div>
+      <div style="padding:12px 13px 0">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px">
+          <div class="card-sm">
+            <div class="label-xs">ТРАФИК</div>
+            <div class="val-md">4.2 GB</div>
+          </div>
+          <div class="card-sm">
+            <div class="label-xs">ВСЕГО</div>
+            <div class="val-md val-accent">$21.18</div>
+          </div>
+        </div>
+        <div class="stop-btn" style="margin-bottom:5px">остановить</div>
+        <div style="text-align:center;font-size:9px;color:#3a3a30;margin-bottom:12px">трафик зашифрован · данные защищены</div>
+      </div>
+      <div class="nav">
+        <div class="nav-item"><div class="nav-dot-a"></div><span style="color:#c8f03c">главная</span></div>
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">кошелёк</span></div>
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">профиль</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ЭКРАН 3: КОШЕЛЁК -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+    <span style="font-size:11px;color:var(--color-text-secondary);">3 — кошелёк</span>
+    <div class="phone">
+      <div class="topbar">
+        <span class="logo">ex<span>ra</span></span>
+        <span style="font-size:10px;color:#5a5850">апр 2026</span>
+      </div>
+      <div style="padding:16px 14px 0;background:#0f0f0d">
+        <div style="text-align:center;margin-bottom:16px">
+          <div class="label-xs" style="margin-bottom:4px">ДОСТУПНО</div>
+          <div style="font-size:32px;font-weight:500;color:#f0ede6;line-height:1;letter-spacing:-0.02em">$21.18</div>
+          <div style="font-size:10px;color:#5a5850;margin-top:3px">USDT · TRC-20</div>
+        </div>
+        <div class="start-btn" style="margin-bottom:12px;font-size:13px">вывести</div>
+        <div style="font-size:10px;color:#3a3a30;margin-bottom:10px;letter-spacing:0.04em">ИСТОРИЯ</div>
+        <div class="history-row">
+          <div>
+            <div style="font-size:12px;color:#f0ede6;font-weight:500">выплата PoP</div>
+            <div style="font-size:10px;color:#5a5850">сегодня · 14:32</div>
+          </div>
+          <div style="font-size:13px;font-weight:500;color:#c8f03c">+$1.24</div>
+        </div>
+        <div class="history-row">
+          <div>
+            <div style="font-size:12px;color:#f0ede6;font-weight:500">трафик</div>
+            <div style="font-size:10px;color:#5a5850">вчера · 4.2 GB</div>
+          </div>
+          <div style="font-size:13px;font-weight:500;color:#c8f03c">+$6.30</div>
+        </div>
+        <div class="history-row" style="border:none">
+          <div>
+            <div style="font-size:12px;color:#f0ede6;font-weight:500">вывод</div>
+            <div style="font-size:10px;color:#5a5850">28 мар</div>
+          </div>
+          <div style="font-size:13px;font-weight:500;color:#5a5850">−$10.00</div>
+        </div>
+      </div>
+      <div class="nav" style="margin-top:8px">
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">главная</span></div>
+        <div class="nav-item"><div class="nav-dot-a"></div><span style="color:#c8f03c">кошелёк</span></div>
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">профиль</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ЭКРАН 4: РЕФЕРАЛЫ -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+    <span style="font-size:11px;color:var(--color-text-secondary);">4 — профиль</span>
+    <div class="phone">
+      <div class="topbar">
+        <span class="logo">ex<span>ra</span></span>
+        <span class="tier-badge">Network Builder</span>
+      </div>
+      <div style="padding:14px 14px 0;background:#0f0f0d">
+        <div style="text-align:center;margin-bottom:14px">
+          <div style="width:48px;height:48px;border-radius:14px;background:#1a1a16;border:0.5px solid #2a2a26;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:20px;color:#5a5850">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3.5" stroke="#5a5850" stroke-width="1.2"/><path d="M3 17c0-3.87 3.13-7 7-7s7 3.13 7 7" stroke="#5a5850" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </div>
+          <div style="font-size:13px;font-weight:500;color:#f0ede6">device_a1b2c3</div>
+          <div style="font-size:10px;color:#5a5850;margin-top:2px">Индия · phone · tier 1</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px">
+          <div class="card-sm" style="text-align:center">
+            <div class="label-xs">РЕФЕРАЛОВ</div>
+            <div style="font-size:18px;font-weight:500;color:#c8f03c;margin-top:2px">142</div>
+          </div>
+          <div class="card-sm" style="text-align:center">
+            <div class="label-xs">БОНУС</div>
+            <div style="font-size:18px;font-weight:500;color:#f0ede6;margin-top:2px">15%</div>
+          </div>
+        </div>
+
+        <div style="font-size:10px;color:#3a3a30;margin-bottom:8px;letter-spacing:0.04em">МОИ РЕФЕРАЛЫ</div>
+        <div class="ref-item">
+          <div class="ref-avatar">IN</div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#f0ede6">device_f4e5d6</div>
+            <div style="font-size:9px;color:#5a5850">онлайн · 1.8 MB/s</div>
+          </div>
+          <div style="font-size:11px;color:#c8f03c">+$0.06</div>
+        </div>
+        <div class="ref-item">
+          <div class="ref-avatar">BR</div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#f0ede6">device_a9b8c7</div>
+            <div style="font-size:9px;color:#5a5850">онлайн · 2.1 MB/s</div>
+          </div>
+          <div style="font-size:11px;color:#c8f03c">+$0.08</div>
+        </div>
+        <div class="ref-item" style="border:none">
+          <div class="ref-avatar" style="color:#3a3a30">NG</div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#5a5850">device_e1f2a3</div>
+            <div style="font-size:9px;color:#3a3a30">оффлайн</div>
+          </div>
+          <div style="font-size:11px;color:#3a3a30">$0.00</div>
+        </div>
+      </div>
+      <div class="nav">
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">главная</span></div>
+        <div class="nav-item"><div class="nav-dot-i"></div><span style="color:#5a5850">кошелёк</span></div>
+        <div class="nav-item"><div class="nav-dot-a"></div><span style="color:#c8f03c">профиль</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>

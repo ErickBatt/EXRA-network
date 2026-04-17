@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exra — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@400;500;600;700;800&family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a08;--bg2:#111110;--surface:#1f1f1b;
+  --ink:#f0ede6;--ink2:#9e9b92;--ink3:#5a5850;
+  --accent:#c8f03c;--accent2:#a8d020;
+  --accent-dim:rgba(200,240,60,0.1);
+  --border:rgba(240,237,230,0.06);--border2:rgba(240,237,230,0.12);
+  --red:#ff5c5c;--red-dim:rgba(255,92,92,0.08);
+}
+html,body{height:100%}
+body{
+  font-family:'Instrument Sans',sans-serif;
+  background:var(--bg);color:var(--ink);
+  display:flex;align-items:center;justify-content:center;
+  min-height:100vh;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* LAVA BG */
+.lava-bg{position:fixed;inset:0;pointer-events:none;overflow:hidden;opacity:0.4}
+@keyframes lb1{0%{transform:translateY(0) scale(1)}50%{transform:translateY(-200px) scaleX(1.1) scaleY(0.9)}100%{transform:translateY(0) scale(1)}}
+@keyframes lb2{0%{transform:translateY(0) scale(1.1)}50%{transform:translateY(-280px) scaleX(0.9) scaleY(1.12)}100%{transform:translateY(0) scale(1.1)}}
+@keyframes lb3{0%{transform:translateY(0) scale(0.95)}60%{transform:translateY(-150px) scaleX(1.08) scaleY(0.93)}100%{transform:translateY(0) scale(0.95)}}
+.blob{position:absolute;border-radius:50%;filter:blur(80px)}
+
+/* CARD */
+.card{
+  width:400px;max-width:90vw;
+  position:relative;z-index:10;
+  animation:fadeUp 0.6s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+
+.card-logo{
+  text-align:center;margin-bottom:32px;
+}
+.logo-text{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:36px;letter-spacing:0.2em;color:var(--ink);
+}
+.logo-text span{color:var(--accent);text-shadow:0 0 20px rgba(200,240,60,0.4)}
+.logo-sub{
+  font-size:12px;color:var(--ink3);
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:0.08em;margin-top:4px;
+}
+
+.card-body{
+  background:var(--bg2);
+  border:0.5px solid var(--border2);
+  border-radius:16px;
+  overflow:hidden;
+}
+
+/* TABS */
+.auth-tabs{
+  display:grid;grid-template-columns:1fr 1fr;
+  border-bottom:0.5px solid var(--border);
+}
+.auth-tab{
+  padding:14px;text-align:center;
+  font-family:'Syne',sans-serif;
+  font-size:13px;font-weight:600;
+  color:var(--ink3);cursor:pointer;
+  transition:all 0.15s;border:none;background:none;
+  letter-spacing:0.02em;
+}
+.auth-tab.active{color:var(--ink);background:var(--surface)}
+.auth-tab:hover:not(.active){color:var(--ink2)}
+
+.auth-body{padding:28px}
+
+/* GOOGLE BTN */
+.btn-google{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
+  padding:12px;border-radius:10px;
+  background:var(--surface);border:0.5px solid var(--border2);
+  color:var(--ink);font-size:14px;font-weight:500;
+  cursor:pointer;transition:all 0.2s;
+  font-family:'Instrument Sans',sans-serif;
+  margin-bottom:20px;
+}
+.btn-google:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+
+/* DIVIDER */
+.divider{
+  display:flex;align-items:center;gap:12px;
+  margin-bottom:20px;
+  font-size:11px;color:var(--ink3);
+  font-family:'JetBrains Mono',monospace;letter-spacing:0.06em;
+}
+.divider::before,.divider::after{
+  content:'';flex:1;height:0.5px;background:var(--border);
+}
+
+/* FORM */
+.form-label{
+  font-size:11px;color:var(--ink3);
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:0.08em;text-transform:uppercase;
+  margin-bottom:8px;display:block;
+}
+.input-wrap{
+  display:flex;align-items:center;gap:10px;
+  background:var(--surface);
+  border:0.5px solid var(--border2);
+  border-radius:10px;padding:12px 14px;
+  margin-bottom:16px;
+  transition:border-color 0.2s;
+}
+.input-wrap:focus-within{border-color:rgba(200,240,60,0.4)}
+.input-wrap input{
+  background:none;border:none;outline:none;
+  font-size:14px;color:var(--ink);width:100%;
+  font-family:'Instrument Sans',sans-serif;
+}
+.input-wrap input::placeholder{color:var(--ink3)}
+
+.btn-primary{
+  width:100%;padding:13px;
+  font-family:'Syne',sans-serif;
+  font-size:14px;font-weight:700;
+  color:#0a0a08;background:var(--accent);
+  border:none;border-radius:10px;cursor:pointer;
+  transition:all 0.2s;letter-spacing:0.03em;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.btn-primary:hover{background:var(--accent2);transform:translateY(-1px)}
+.btn-primary:disabled{background:var(--surface);color:var(--ink3);transform:none;cursor:not-allowed}
+
+/* STATES */
+.state{display:none}
+.state.active{display:block}
+
+/* SUCCESS */
+.success-box{
+  text-align:center;padding:20px 0;
+}
+.success-icon{
+  width:56px;height:56px;border-radius:16px;
+  background:var(--accent-dim);border:0.5px solid rgba(200,240,60,0.2);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 20px;font-size:24px;
+}
+.success-title{
+  font-family:'Syne',sans-serif;
+  font-size:20px;font-weight:700;color:var(--ink);
+  margin-bottom:8px;
+}
+.success-email{
+  font-family:'JetBrains Mono',monospace;
+  font-size:12px;color:var(--accent);
+  margin-bottom:12px;
+}
+.success-sub{font-size:13px;color:var(--ink2);line-height:1.6}
+
+/* ERROR */
+.error-box{
+  background:var(--red-dim);border:0.5px solid rgba(255,92,92,0.2);
+  border-radius:8px;padding:10px 14px;
+  font-size:12px;color:var(--red);
+  font-family:'JetBrains Mono',monospace;
+  margin-bottom:16px;display:none;
+}
+
+/* FOOTER */
+.card-footer{
+  text-align:center;margin-top:20px;
+  font-size:12px;color:var(--ink3);line-height:1.6;
+}
+.card-footer a{color:var(--ink2);text-decoration:none}
+.card-footer a:hover{color:var(--ink)}
+
+/* SPINNER */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{
+  width:16px;height:16px;border-radius:50%;
+  border:2px solid rgba(10,10,8,0.3);
+  border-top-color:#0a0a08;
+  animation:spin 0.7s linear infinite;
+}
+</style>
+</head>
+<body>
+
+<!-- LAVA -->
+<div class="lava-bg">
+  <div class="blob" style="width:500px;height:500px;background:rgba(200,240,60,0.04);bottom:-150px;left:-80px;animation:lb1 12s ease-in-out infinite"></div>
+  <div class="blob" style="width:400px;height:400px;background:rgba(200,240,60,0.03);bottom:-100px;right:-60px;animation:lb2 9s ease-in-out infinite 1s"></div>
+  <div class="blob" style="width:300px;height:300px;background:rgba(200,240,60,0.04);top:10%;left:40%;animation:lb3 14s ease-in-out infinite 0.5s"></div>
+</div>
+
+<!-- CARD -->
+<div class="card">
+  <div class="card-logo">
+    <div class="logo-text">ex<span>ra</span></div>
+    <div class="logo-sub">bandwidth marketplace</div>
+  </div>
+
+  <div class="card-body">
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchMode('magic')">magic link</button>
+      <button class="auth-tab" onclick="switchMode('password')">password</button>
+    </div>
+
+    <div class="auth-body">
+      <!-- ERROR -->
+      <div class="error-box" id="error-box"></div>
+
+      <!-- GOOGLE -->
+      <button class="btn-google" onclick="signInGoogle()">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+          <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+          <path d="M3.964 10.707A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+          <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 6.293C4.672 4.166 6.656 3.58 9 3.58z" fill="#EA4335"/>
+        </svg>
+        continue with Google
+      </button>
+
+      <div class="divider">or</div>
+
+      <!-- MAGIC LINK STATE -->
+      <div class="state active" id="state-magic-form">
+        <label class="form-label">email address</label>
+        <div class="input-wrap">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="3" width="13" height="9" rx="1.5" stroke="#5a5850" stroke-width="1.2"/><path d="M1 4l6.5 5L14 4" stroke="#5a5850" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <input type="email" placeholder="you@example.com" id="magic-email" onkeydown="if(event.key==='Enter')sendMagicLink()">
+        </div>
+        <button class="btn-primary" onclick="sendMagicLink()" id="magic-btn">
+          send magic link →
+        </button>
+      </div>
+
+      <div class="state" id="state-magic-sent">
+        <div class="success-box">
+          <div class="success-icon">✉️</div>
+          <div class="success-title">check your email</div>
+          <div class="success-email" id="magic-sent-email"></div>
+          <div class="success-sub">We sent a sign-in link. Click it and you're in — no password needed.</div>
+        </div>
+        <button class="btn-primary" style="margin-top:20px;background:var(--surface);color:var(--ink2);border:0.5px solid var(--border2)" onclick="resetMagic()">
+          ← use different email
+        </button>
+      </div>
+
+      <!-- PASSWORD STATE -->
+      <div class="state" id="state-password-form">
+        <label class="form-label">email address</label>
+        <div class="input-wrap">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="3" width="13" height="9" rx="1.5" stroke="#5a5850" stroke-width="1.2"/><path d="M1 4l6.5 5L14 4" stroke="#5a5850" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <input type="email" placeholder="you@example.com" id="pw-email">
+        </div>
+        <label class="form-label">password</label>
+        <div class="input-wrap" style="margin-bottom:20px">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="6" width="11" height="8" rx="1.5" stroke="#5a5850" stroke-width="1.2"/><path d="M5 6V4.5a2.5 2.5 0 015 0V6" stroke="#5a5850" stroke-width="1.2"/><circle cx="7.5" cy="10" r="1" fill="#5a5850"/></svg>
+          <input type="password" placeholder="min 8 characters" id="pw-password" onkeydown="if(event.key==='Enter')signInPassword()">
+        </div>
+        <button class="btn-primary" onclick="signInPassword()" id="pw-btn">sign in →</button>
+        <div style="text-align:center;margin-top:14px">
+          <span style="font-size:12px;color:var(--ink3)">no account? </span>
+          <button onclick="switchToRegister()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;font-family:'Instrument Sans',sans-serif">create one →</button>
+        </div>
+      </div>
+
+      <div class="state" id="state-register-form">
+        <label class="form-label">email address</label>
+        <div class="input-wrap">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="3" width="13" height="9" rx="1.5" stroke="#5a5850" stroke-width="1.2"/><path d="M1 4l6.5 5L14 4" stroke="#5a5850" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <input type="email" placeholder="you@example.com" id="reg-email">
+        </div>
+        <label class="form-label">password</label>
+        <div class="input-wrap" style="margin-bottom:20px">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="6" width="11" height="8" rx="1.5" stroke="#5a5850" stroke-width="1.2"/><path d="M5 6V4.5a2.5 2.5 0 015 0V6" stroke="#5a5850" stroke-width="1.2"/><circle cx="7.5" cy="10" r="1" fill="#5a5850"/></svg>
+          <input type="password" placeholder="min 8 characters" id="reg-password" onkeydown="if(event.key==='Enter')signUpPassword()">
+        </div>
+        <button class="btn-primary" onclick="signUpPassword()" id="reg-btn">create account →</button>
+        <div style="text-align:center;margin-top:14px">
+          <span style="font-size:12px;color:var(--ink3)">already have account? </span>
+          <button onclick="switchToLogin()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;font-family:'Instrument Sans',sans-serif">sign in →</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="card-footer">
+    By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a><br>
+    <a href="/" style="margin-top:8px;display:inline-block">← back to exra.network</a>
+  </div>
+</div>
+
+<script>
+// --- SUPABASE CONFIG ---
+// Замени на свои данные из Supabase Dashboard → Settings → API
+const SUPABASE_URL = 'https://YOUR_PROJECT.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// После логина редирект сюда
+const REDIRECT_URL = 'https://app.exra.network/marketplace';
+
+// --- MODES ---
+let currentMode = 'magic';
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.auth-tab').forEach((t,i) => {
+    t.classList.toggle('active', (i===0&&mode==='magic')||(i===1&&mode==='password'));
+  });
+  hideAllStates();
+  showError('');
+  if (mode === 'magic') {
+    show('state-magic-form');
+  } else {
+    show('state-password-form');
+  }
+}
+
+function switchToRegister() {
+  hideAllStates();
+  show('state-register-form');
+}
+function switchToLogin() {
+  hideAllStates();
+  show('state-password-form');
+}
+
+function hideAllStates() {
+  document.querySelectorAll('.state').forEach(s => s.classList.remove('active'));
+}
+function show(id) {
+  document.getElementById(id).classList.add('active');
+}
+function showError(msg) {
+  const el = document.getElementById('error-box');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (loading) {
+    btn.innerHTML = `<div class="spinner"></div>`;
+    btn.disabled = true;
+  } else {
+    btn.disabled = false;
+  }
+}
+
+// --- MAGIC LINK ---
+async function sendMagicLink() {
+  const email = document.getElementById('magic-email').value.trim();
+  if (!email || !email.includes('@')) {
+    showError('enter a valid email address');
+    return;
+  }
+  showError('');
+  setLoading('magic-btn', true);
+  try {
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: REDIRECT_URL }
+    });
+    if (error) throw error;
+    document.getElementById('magic-sent-email').textContent = email;
+    hideAllStates();
+    show('state-magic-sent');
+  } catch(e) {
+    showError(e.message || 'something went wrong, try again');
+    document.getElementById('magic-btn').innerHTML = 'send magic link →';
+    document.getElementById('magic-btn').disabled = false;
+  }
+}
+
+function resetMagic() {
+  hideAllStates();
+  show('state-magic-form');
+  document.getElementById('magic-email').value = '';
+  document.getElementById('magic-btn').innerHTML = 'send magic link →';
+  document.getElementById('magic-btn').disabled = false;
+}
+
+// --- PASSWORD LOGIN ---
+async function signInPassword() {
+  const email = document.getElementById('pw-email').value.trim();
+  const password = document.getElementById('pw-password').value;
+  if (!email || !password) { showError('fill in all fields'); return; }
+  showError('');
+  setLoading('pw-btn', true);
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    window.location.href = REDIRECT_URL;
+  } catch(e) {
+    showError(e.message || 'invalid email or password');
+    document.getElementById('pw-btn').innerHTML = 'sign in →';
+    document.getElementById('pw-btn').disabled = false;
+  }
+}
+
+// --- REGISTER ---
+async function signUpPassword() {
+  const email = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  if (!email || !password) { showError('fill in all fields'); return; }
+  if (password.length < 8) { showError('password must be at least 8 characters'); return; }
+  showError('');
+  setLoading('reg-btn', true);
+  try {
+    const { error } = await sb.auth.signUp({
+      email, password,
+      options: { emailRedirectTo: REDIRECT_URL }
+    });
+    if (error) throw error;
+    document.getElementById('magic-sent-email').textContent = email;
+    hideAllStates();
+    show('state-magic-sent');
+  } catch(e) {
+    showError(e.message || 'registration failed');
+    document.getElementById('reg-btn').innerHTML = 'create account →';
+    document.getElementById('reg-btn').disabled = false;
+  }
+}
+
+// --- GOOGLE ---
+async function signInGoogle() {
+  try {
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: REDIRECT_URL }
+    });
+    if (error) throw error;
+  } catch(e) {
+    showError(e.message || 'google sign in failed');
+  }
+}
+
+// --- CHECK SESSION ---
+sb.auth.onAuthStateChange((event, session) => {
+  if (session && event === 'SIGNED_IN') {
+    window.location.href = REDIRECT_URL;
+  }
+});
+</script>
+</body>
+</html>

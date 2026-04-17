@@ -1,0 +1,4 @@
+ALTER TABLE oracle_mint_queue ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE oracle_mint_queue ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+ALTER TABLE oracle_mint_queue ADD COLUMN IF NOT EXISTS dlq_reason TEXT DEFAULT '';
+ALTER TABLE oracle_mint_queue ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
