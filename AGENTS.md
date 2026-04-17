@@ -48,7 +48,7 @@
 | Компонент | Статус | Что реально работает |
 |-----------|--------|---------------------|
 | Go сервер (core) | ✅ 100% | Gorilla Mux unification, DID Auth, Hardened Traffic, PoP, Payouts, Peaq L1 Integration |
-| Android APK | ✅ 100% | Header Auth, WS подключение, TunnelWorker, Encrypted DID (KeyStore) |
+| Android APK | ✅ 100% | Peaq DID (sr25519), WS подключение, TunnelWorker, Encrypted DID (KeyStore), Gradle 9.3.1, Kotlin 2.2.10 / AGP 9.1.1 |
 | Dashboard | ✅ 100% | Маркетплейс, авторизация, сессии, Peaq L1 Integration |
 | TON смарт-контракт | 🗑️ Removed | Полностью заменено на PEAQ DePIN |
 | TON интеграция в Go | 🗑️ Removed | Полностью заменено на PEAQ DePIN |
@@ -339,3 +339,24 @@ go test -timeout 60s ./middleware/... ./models/... ./hub/... ./tests/...
 - **Каждый эндпоинт требует:** валидации входных данных, обработки ошибок без раскрытия деталей, логирования
 - **DB операции:** использовать транзакции для любых multi-step операций
 - **Публичные эндпоинты:** только `PublicNode` struct, никогда `Node` напрямую
+
+---
+
+## 14. Android Toolchain (Kotlin 2.x Migration)
+
+**Стек после миграции 2026-04-17:**
+- Kotlin: `2.2.10` (root `build.gradle`, plugin `org.jetbrains.kotlin.android`)
+- Compose Compiler Plugin: `org.jetbrains.kotlin.plugin.compose:2.2.10` (в Kotlin 2.x — отдельный плагин, `composeOptions.kotlinCompilerExtensionVersion` больше не используется)
+- Android Gradle Plugin: `9.1.1`, Gradle wrapper `9.3.1`
+- Compose BOM: `2024.12.01`
+- kotlinx-coroutines-android: `1.9.0`
+- SDK ноды: `store.silencio:peaqsdk:1.0.15` + `silenciopeaqsdk-native:2.1.4` (пакеты `dev.sublab.*`, НЕ Nova `io.novasama.*`)
+
+**Почему миграция обязательна:** бинарники `store.silencio:peaqsdk:1.0.15` скомпилированы Kotlin-метадатой `2.3.0` — Kotlin 1.9 компилятор физически не может их прочитать.
+
+**Фиксы в `app/build.gradle` (нельзя откатывать без причины):**
+- `configurations.all { exclude group: 'org.bouncycastle', module: 'bcprov-jdk15on' }` — убирает дубликаты классов BouncyCastle (web3j 4.9.5 тянет старый `jdk15on:1.68`, наш явный `bcprov-jdk15to18:1.78.1` конфликтовал).
+- `freeCompilerArgs += '-Xskip-metadata-version-check'` в `kotlinOptions` — страховка на случай если SDK обновит metadata быстрее компилятора.
+- Явные пины `dev.sublab:common-kotlin:1.0.0` и `dev.sublab:sr25519-kotlin:1.0.1` — версии `1.1.x` в Maven Central не существуют.
+
+**Импорты в Kotlin-коде ноды:** использовать `dev.sublab.encrypting.keys.KeyPair`, НЕ `io.novasama.substrate_sdk_android.*` (последние остались от старого Nova SDK).

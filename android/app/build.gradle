@@ -1,8 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    // id 'com.google.gms.google-services'
-    // id 'com.google.firebase.crashlytics'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 android {
@@ -51,32 +50,35 @@ android {
     }
     kotlinOptions {
         jvmTarget = '17'
+        freeCompilerArgs += '-Xskip-metadata-version-check'
     }
     buildFeatures {
         buildConfig true
         compose true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion '1.5.14'
-    }
+}
+
+configurations.all {
+    exclude group: 'org.bouncycastle', module: 'bcprov-jdk15on'
 }
 
 dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.1.20"
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'org.bouncycastle:bcprov-jdk15to18:1.78.1'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
     // Production-Grade Peaq/Substrate SDK (Silencio Hardened)
     implementation 'store.silencio:peaqsdk:1.0.15'
     implementation 'store.silencio:silenciopeaqsdk-native:2.1.4'
-    implementation 'dev.sublab:hashing-kotlin:1.1.2'
-    implementation 'dev.sublab:common-kotlin:1.1.2'
+    implementation 'dev.sublab:common-kotlin:1.0.0'
+    implementation 'dev.sublab:sr25519-kotlin:1.0.1'
 
     // Jetpack Compose
-    def composeBom = platform('androidx.compose:compose-bom:2023.10.01')
+    def composeBom = platform('androidx.compose:compose-bom:2024.12.01')
     implementation composeBom
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'

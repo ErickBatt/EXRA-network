@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
-import io.novasama.substrate_sdk_android.encrypt.keypair.KeyPair
-import io.novasama.substrate_sdk_android.extensions.toHexString
+import dev.sublab.sr25519.KeyPair
+import dev.sublab.sr25519.PublicKey
+import dev.sublab.sr25519.SecretKey
+import dev.sublab.sr25519.Signature
 import org.bouncycastle.util.encoders.Hex
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -96,18 +98,25 @@ class IdentityManager(private val context: Context) {
             val prefs = getEncryptedPrefs()
             val privHex = prefs.getString(KEY_PRIV, null)
             val pubHex = prefs.getString(KEY_PUB, null)
-            val nonceHex = prefs.getString(KEY_NONCE, null)
 
             if (privHex == null || pubHex == null) {
+                Log.i(TAG, "No keys found in storage, generating new ones...")
                 generateKeys()
             } else {
-                val privateKey = Hex.decode(privHex)
-                val publicKey = Hex.decode(pubHex)
-                val nonce = nonceHex?.let { Hex.decode(it) }
+                val privateKeyBytes = Hex.decode(privHex)
+                val publicKeyBytes = Hex.decode(pubHex)
                 
-                // KeyPair from bytes (Substrate SDK style)
-                keyPair = KeyPair(publicKey, privateKey, nonce)
-                Log.i(TAG, "sr25519 Identity keys loaded from secure storage (Production SDK)")
+                Log.d(TAG, "Loading keys: Priv size=${privateKeyBytes.size}, Pub size=${publicKeyBytes.size}")
+
+                try {
+                    val secretKey = SecretKey.fromByteArray(privateKeyBytes)
+                    val publicKey = PublicKey.fromByteArray(publicKeyBytes)
+                    keyPair = KeyPair(secretKey, publicKey)
+                    Log.i(TAG, "sr25519 Identity keys loaded successfully. DID: ${getDID()}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Invalid key encoding in storage: ${e.message}. Re-generating...")
+                    generateKeys()
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize secure storage: ${e.message}")
@@ -118,29 +127,27 @@ class IdentityManager(private val context: Context) {
     private fun generateKeys() {
         Log.i(TAG, "Generating new production sr25519 identity...")
         try {
-            // Securely generate a 32-byte seed
-            val seed = ByteArray(32)
-            SecureRandom().nextBytes(seed)
-            val seedHex = seed.toHexString(withPrefix = true)
-            
-            // Use the hardened Silencio/Nova Factory
-            val newKeyPair = KeyPair.Factory.sr25519().generate(seedHex)
+            // In sr25519-kotlin, SecretKey.generate() handles secure entropy
+            val secretKey = SecretKey.generate()
+            val newKeyPair = secretKey.toKeyPair()
             keyPair = newKeyPair
 
+            val privBytes = secretKey.toByteArray()
+            val pubBytes = newKeyPair.publicKey.toByteArray()
+
             getEncryptedPrefs().edit()
-                .putString(KEY_PRIV, newKeyPair.privateKey.toHexString())
-                .putString(KEY_PUB, newKeyPair.publicKey.toHexString())
-                .putString(KEY_NONCE, newKeyPair.nonce?.toHexString())
+                .putString(KEY_PRIV, Hex.toHexString(privBytes))
+                .putString(KEY_PUB, Hex.toHexString(pubBytes))
                 .apply()
             
-            Log.i(TAG, "New production identity generated: ${getPublicKeyHex().take(16)}...")
+            Log.i(TAG, "New identity generated. PubKey: ${Hex.toHexString(pubBytes).take(16)}...")
         } catch (e: Exception) {
-            Log.e(TAG, "Production key generation failed: ${e.message}")
+            Log.e(TAG, "Key generation failed: ${e.message}", e)
         }
     }
 
     fun getPublicKeyHex(): String {
-        return keyPair?.publicKey?.toHexString() ?: ""
+        return keyPair?.publicKey?.let { Hex.toHexString(it.toByteArray()) } ?: ""
     }
 
     fun getDID(): String {
@@ -157,8 +164,8 @@ class IdentityManager(private val context: Context) {
         return try {
             val kp = keyPair ?: return ""
             // Use the production-grade sign method
-            val signature = kp.sign(data)
-            signature.toHexString(withPrefix = true)
+            val signature = kp.signSimple("".toByteArray(), data)
+            Hex.toHexString(signature.toByteArray())
         } catch (e: Exception) {
             Log.e(TAG, "Production signing failed: ${e.message}")
             ""

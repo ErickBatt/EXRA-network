@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="deep_indigo">#0A0E21</color>
+    <color name="electric_green">#00FF94</color>
+    <color name="neon_purple">#BD00FF</color>
+    <color name="glass_white">#1AFFFFFF</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="slate_700">#334155</color>
+    <color name="slate_800">#1E293B</color>
+    <color name="slate_900">#0F172A</color>
+</resources>

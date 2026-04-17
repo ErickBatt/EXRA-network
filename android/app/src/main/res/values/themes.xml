@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. -->
+    <style name="Theme.Exra" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/electric_green</item>
+        <item name="colorSurface">#1E293B</item>
+    </style>
+
+    <style name="Theme.AppCompat.Light.NoActionBar" parent="Theme.Exra" />
+</resources>

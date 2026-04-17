@@ -16,6 +16,7 @@ dependencyResolutionManagement {
         mavenCentral()
         maven { url 'https://jitpack.io' }
         maven { url 'https://repo.repsy.io/mvn/chrynan/public' }
+        maven { url 'https://repo.repsy.io/mvn/novasama/public-libs' }
     }
 }
 
