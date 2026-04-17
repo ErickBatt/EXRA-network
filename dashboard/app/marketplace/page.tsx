@@ -4,6 +4,13 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { fetchJson } from '@/lib/api';
+import {
+  buyerFetch,
+  setBuyerApiKey,
+  clearBuyerApiKey,
+  revealBuyerApiKey,
+  BuyerApiUnauthorized,
+} from '@/lib/buyerApi';
 import Link from 'next/link';
 import ProxyGuide from '@/components/ProxyGuide';
 import UsageChart from '@/components/UsageChart';
@@ -36,7 +43,12 @@ type Session = {
 
 type BuyerProfile = {
   id: string;
-  api_key: string;
+  // api_key is intentionally optional: with the cookie-auth proxy it is
+  // not needed for everyday calls and is fetched on demand via
+  // revealBuyerApiKey() when the user wants to copy it for an external
+  // client (e.g. ProxyGuide). Backend may still include it in /me for
+  // backwards compatibility — we just don't rely on it here.
+  api_key?: string;
   email: string;
   balance_usd: number;
 };
@@ -68,6 +80,10 @@ export default function MarketplacePage() {
   const [offerCountry, setOfferCountry] = useState<string>('IN');
   const [offerTargetGb, setOfferTargetGb] = useState<number>(10);
   const [offerMaxPrice, setOfferMaxPrice] = useState<number>(1.5);
+  // Lazily revealed only when user clicks Reveal/Copy in the Developer
+  // Access card or expands ProxyGuide. Keeping it out of state by default
+  // means a passive XSS payload cannot scrape it on page load.
+  const [revealedApiKey, setRevealedApiKey] = useState<string>('');
 
     const router = useRouter();
 
@@ -77,16 +93,40 @@ export default function MarketplacePage() {
       fetchNodes();
       fetchStats();
 
-      // Try to load buyer profile if logged in
+      // Try to load buyer profile if logged in. The API key now lives in
+      // an httpOnly cookie set by /buyer-api/auth/set, so we try the
+      // cookie-authenticated proxy first; if that 401s we fall back to
+      // the legacy localStorage key for a one-shot migration, then wipe
+      // it so it never sits in JS-readable storage again.
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setUser(session.user);
-          const localApiKey = localStorage.getItem('exra_buyer_api_key') || '';
-          if (localApiKey) {
-            const buyerData = await fetchJson<BuyerProfile>('/api/buyer/me', localApiKey);
+          let buyerData: BuyerProfile | null = null;
+          try {
+            buyerData = await buyerFetch<BuyerProfile>('/api/buyer/me');
+          } catch (err) {
+            if (err instanceof BuyerApiUnauthorized) {
+              const legacy = localStorage.getItem('exra_buyer_api_key') || '';
+              if (legacy) {
+                try {
+                  await setBuyerApiKey(legacy);
+                  buyerData = await buyerFetch<BuyerProfile>('/api/buyer/me');
+                  // Migration succeeded — drop the JS-readable copy so
+                  // any future XSS cannot exfil it.
+                  localStorage.removeItem('exra_buyer_api_key');
+                } catch (migrateErr) {
+                  console.error('buyer cookie migration failed:', migrateErr);
+                  await clearBuyerApiKey();
+                }
+              }
+            } else {
+              throw err;
+            }
+          }
+          if (buyerData) {
             setBuyer(buyerData);
-            fetchOffers(buyerData.api_key);
+            fetchOffers();
           }
         }
       } catch (err) {
@@ -139,16 +179,14 @@ export default function MarketplacePage() {
   const fetchSessions = async () => {
     if (!buyer) return;
     try {
-      const data = await fetchJson<Session[]>('/api/buyer/sessions', buyer.api_key);
+      const data = await buyerFetch<Session[]>('/api/buyer/sessions');
       setSessions(data || []);
     } catch (e) { console.error(e); }
   };
 
-  const fetchOffers = async (apiKey?: string) => {
-    const token = apiKey || buyer?.api_key;
-    if (!token) return;
+  const fetchOffers = async () => {
     try {
-      const data = await fetchJson<Offer[]>('/api/offers?limit=20', token);
+      const data = await buyerFetch<Offer[]>('/api/offers?limit=20');
       setOffers(data || []);
     } catch (e) { console.error(e); }
   };
@@ -156,7 +194,7 @@ export default function MarketplacePage() {
   const createOffer = async () => {
     if (!buyer) return;
     try {
-      await fetchJson('/api/offers', buyer.api_key, {
+      await buyerFetch('/api/offers', {
         method: 'POST',
         body: JSON.stringify({
           country: offerCountry,
@@ -173,7 +211,7 @@ export default function MarketplacePage() {
   const assignOffer = async (offerId: string) => {
     if (!buyer) return;
     try {
-      await fetchJson(`/api/offers/${offerId}/assign`, buyer.api_key, { method: 'POST' });
+      await buyerFetch(`/api/offers/${offerId}/assign`, { method: 'POST' });
       fetchOffers();
       fetchSessions();
       setActiveTab('sessions');
@@ -186,15 +224,11 @@ export default function MarketplacePage() {
     if (!buyer || topupAmount <= 0) return;
     setLoading(true);
     try {
-      await fetchJson('/api/buyer/topup', buyer.api_key, {
+      await buyerFetch('/api/buyer/topup', {
         method: 'POST',
         body: JSON.stringify({ amount_usd: topupAmount })
       });
-      // Refresh buyer profile
-      const res = await fetch('/api/buyer/me', {
-        headers: { 'X-Exra-Token': buyer.api_key }
-      });
-      const newBuyer = await res.json();
+      const newBuyer = await buyerFetch<BuyerProfile>('/api/buyer/me');
       setBuyer(newBuyer);
       setTopupSuccess(true);
       setTimeout(() => setTopupSuccess(false), 3000);
@@ -209,7 +243,7 @@ export default function MarketplacePage() {
   const startSession = async (nodeId: string) => {
     if (!buyer) return;
     try {
-      await fetchJson('/api/session/start', buyer.api_key, {
+      await buyerFetch('/api/session/start', {
         method: 'POST',
         body: JSON.stringify({ node_id: nodeId })
       });
@@ -223,18 +257,30 @@ export default function MarketplacePage() {
   const endSession = async (sessionId: string) => {
     if (!buyer) return;
     try {
-      await fetchJson(`/api/session/${sessionId}/end`, buyer.api_key, {
-        method: 'POST'
-      });
+      await buyerFetch(`/api/session/${sessionId}/end`, { method: 'POST' });
       fetchSessions();
     } catch (e) {
       alert('Failed to end session: ' + e);
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    alert('Copied to clipboard!');
+  // Pulls the API key out of the httpOnly cookie via the reveal endpoint.
+  // Idempotent — caches in component state once revealed.
+  const ensureApiKeyRevealed = async (): Promise<string> => {
+    if (revealedApiKey) return revealedApiKey;
+    const k = await revealBuyerApiKey();
+    setRevealedApiKey(k);
+    return k;
+  };
+
+  const copyApiKeyToClipboard = async () => {
+    try {
+      const k = await ensureApiKeyRevealed();
+      await navigator.clipboard.writeText(k);
+      alert('API key copied to clipboard');
+    } catch (e) {
+      alert('Failed to reveal API key: ' + e);
+    }
   };
 
   const getFlag = (country: string) => {
@@ -393,8 +439,16 @@ export default function MarketplacePage() {
                     <div className="api-key-row">
                       <div className="api-label">Your API Token</div>
                       <div className="api-val-wrap">
-                        <code className="api-key-code">{buyer?.api_key}</code>
-                        <button className="btn-copy-mini" onClick={() => copyToClipboard(buyer?.api_key || '')}>Copy</button>
+                        <code className="api-key-code">
+                          {revealedApiKey || '••••••••••••••••  (hidden)'}
+                        </code>
+                        {!revealedApiKey && (
+                          <button
+                            className="btn-copy-mini"
+                            onClick={() => ensureApiKeyRevealed().catch((e) => alert('Reveal failed: ' + e))}
+                          >Reveal</button>
+                        )}
+                        <button className="btn-copy-mini" onClick={copyApiKeyToClipboard}>Copy</button>
                       </div>
                     </div>
                     <div className="api-hint">Use this token as a password for proxy authentication or server-to-server API calls.</div>
@@ -601,7 +655,14 @@ export default function MarketplacePage() {
                   {session.active && buyer && (
                     <div className="scr-footer">
                        <div className="scr-guide-label">Connection Guide</div>
-                       <ProxyGuide apiKey={buyer.api_key} />
+                       {revealedApiKey ? (
+                         <ProxyGuide apiKey={revealedApiKey} />
+                       ) : (
+                         <button
+                           className="btn-copy-mini"
+                           onClick={() => ensureApiKeyRevealed().catch((e) => alert('Reveal failed: ' + e))}
+                         >Reveal API key to see connection details</button>
+                       )}
                     </div>
                   )}
                 </div>
