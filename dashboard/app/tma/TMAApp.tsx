@@ -135,13 +135,19 @@ export default function TMAApp() {
     setLinkLoading(true)
     setLinkError("")
     try {
+      const initData = WebApp.initData
+      if (!initData) {
+        setLinkError("Please reopen the mini app — no Telegram session")
+        setLinkLoading(false)
+        return
+      }
+      // We send the signed Telegram initData — the server derives telegram_id
+      // and display name from it, so the caller cannot spoof another user.
       const res = await apiFetch<any>("/link-device", {
         method: "POST",
-        body: JSON.stringify({ 
-          telegram_id: account.telegram_id, 
+        body: JSON.stringify({
+          init_data: initData,
           device_id: linkDeviceId.trim(),
-          tg_user: account.username || "",
-          tg_first_name: account.first_name || ""
         }),
       })
       if (res.status === "pending") {

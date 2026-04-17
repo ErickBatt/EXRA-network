@@ -152,11 +152,23 @@ func ListPayouts(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /claim/{did}
-// ClaimPayoutHandler processes V2 payouts based on DID.
+// ClaimPayoutHandler processes V2 payouts based on DID. Must be wrapped by
+// DIDAuth middleware at registration time; this handler additionally verifies
+// that the signed X-DID matches the DID in the URL path so that one node
+// cannot claim another's balance.
 func ClaimPayoutHandler(w http.ResponseWriter, r *http.Request) {
 	did := mux.Vars(r)["did"]
 	if did == "" {
 		jsonError(w, "did is required in path", http.StatusBadRequest)
+		return
+	}
+
+	// Defense in depth: DIDAuth has already verified the caller holds the
+	// private key matching X-DID. Ensure the path DID matches the authenticated
+	// DID so /claim/{other-did} cannot be abused.
+	signedDID := r.Header.Get("X-DID")
+	if signedDID == "" || signedDID != did {
+		jsonError(w, "path DID does not match authenticated DID", http.StatusForbidden)
 		return
 	}
 
@@ -168,12 +180,12 @@ func ClaimPayoutHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.AmountUSD <= 0 {
-		jsonError(w, "amount_usd must be positive", http.StatusBadRequest)
+	if err := validateFloat("amount_usd", req.AmountUSD, 0.000001, 1_000_000); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.RecipientWallet == "" {
-		jsonError(w, "recipient_wallet is required", http.StatusBadRequest)
+	if err := validateWallet(req.RecipientWallet); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

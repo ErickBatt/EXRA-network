@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"exra/db"
 	"exra/models"
 	"fmt"
@@ -25,18 +26,39 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// verifyTelegramInitData verifies Telegram WebApp initData HMAC signature.
+// initDataMaxAge bounds how old a signed Telegram initData may be before we
+// reject it. Telegram's own docs recommend rejecting anything older than a
+// day to limit the replay window if initData is ever leaked.
+const initDataMaxAge = 24 * time.Hour
+
+var (
+	errInitDataBotTokenMissing = errors.New("server missing TELEGRAM_BOT_TOKEN")
+	errInitDataInvalidSig      = errors.New("invalid telegram auth signature")
+	errInitDataExpired         = errors.New("telegram initData is expired — please reopen the mini app")
+	errInitDataMissingAuthDate = errors.New("telegram initData missing auth_date")
+	errInitDataMissingUser     = errors.New("telegram initData missing user field")
+)
+
+// verifyTelegramInitData verifies Telegram WebApp initData HMAC signature and
+// the auth_date freshness window. Returns the parsed params on success.
 func verifyTelegramInitData(initData string) (map[string]string, error) {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if botToken == "" {
+		return nil, errInitDataBotTokenMissing
+	}
 	params, err := url.ParseQuery(initData)
 	if err != nil {
 		return nil, err
 	}
 	hash := params.Get("hash")
+	if hash == "" {
+		return nil, errInitDataInvalidSig
+	}
 	params.Del("hash")
 
 	keys := make([]string, 0, len(params))
@@ -56,11 +78,27 @@ func verifyTelegramInitData(initData string) (map[string]string, error) {
 
 	mac := hmac.New(sha256.New, secretKey)
 	mac.Write([]byte(checkString))
-	expected := hex.EncodeToString(mac.Sum(nil))
+	expected := mac.Sum(nil)
 
-	if expected != hash {
-		return nil, nil // invalid but don't error — return nil so caller can handle
+	got, err := hex.DecodeString(hash)
+	if err != nil || !hmac.Equal(expected, got) {
+		return nil, errInitDataInvalidSig
 	}
+
+	// Freshness: auth_date is unix seconds. Reject stale tokens to shrink
+	// the replay window if initData leaks (e.g. via a debug log).
+	authDateStr := params.Get("auth_date")
+	if authDateStr == "" {
+		return nil, errInitDataMissingAuthDate
+	}
+	authDate, err := strconv.ParseInt(authDateStr, 10, 64)
+	if err != nil {
+		return nil, errInitDataMissingAuthDate
+	}
+	if time.Since(time.Unix(authDate, 0)) > initDataMaxAge {
+		return nil, errInitDataExpired
+	}
+
 	result := make(map[string]string)
 	for k, v := range params {
 		if len(v) > 0 {
@@ -68,6 +106,35 @@ func verifyTelegramInitData(initData string) (map[string]string, error) {
 		}
 	}
 	return result, nil
+}
+
+// telegramUserFromInitData verifies initData and extracts the Telegram
+// identity fields from its signed user payload. Attackers cannot forge these
+// because they are covered by the HMAC.
+type telegramIdentity struct {
+	ID        int64
+	Username  string
+	FirstName string
+}
+
+func telegramUserFromInitData(initData string) (*telegramIdentity, error) {
+	params, err := verifyTelegramInitData(initData)
+	if err != nil {
+		return nil, err
+	}
+	userJSON := params["user"]
+	if userJSON == "" {
+		return nil, errInitDataMissingUser
+	}
+	var u struct {
+		ID        int64  `json:"id"`
+		FirstName string `json:"first_name"`
+		Username  string `json:"username"`
+	}
+	if err := json.Unmarshal([]byte(userJSON), &u); err != nil || u.ID == 0 {
+		return nil, errInitDataMissingUser
+	}
+	return &telegramIdentity{ID: u.ID, Username: u.Username, FirstName: u.FirstName}, nil
 }
 
 // POST /api/tma/auth — authenticate via Telegram initData, return account info
@@ -79,37 +146,29 @@ func TmaAuth(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	var telegramID int64
-	var firstName, username string
-
-	if req.InitData != "" {
-		params, err := verifyTelegramInitData(req.InitData)
-		if err != nil || params == nil {
-			jsonError(w, "invalid telegram auth signature", http.StatusUnauthorized)
-			return
-		}
-		// Parse user from initData
-		var tgUser struct {
-			ID        int64  `json:"id"`
-			FirstName string `json:"first_name"`
-			Username  string `json:"username"`
-		}
-		if userJSON := params["user"]; userJSON != "" {
-			_ = json.Unmarshal([]byte(userJSON), &tgUser)
-			telegramID = tgUser.ID
-			firstName = tgUser.FirstName
-			username = tgUser.Username
-		}
-	}
-
-	if telegramID == 0 {
-		jsonError(w, "could not identify telegram user", http.StatusBadRequest)
+	if req.InitData == "" {
+		jsonError(w, "init_data is required", http.StatusBadRequest)
 		return
 	}
+	ident, err := telegramUserFromInitData(req.InitData)
+	if err != nil {
+		status := http.StatusUnauthorized
+		if errors.Is(err, errInitDataExpired) {
+			status = http.StatusUnauthorized
+		} else if errors.Is(err, errInitDataBotTokenMissing) {
+			log.Printf("tma-auth: %v", err)
+			jsonError(w, "auth not configured", http.StatusInternalServerError)
+			return
+		}
+		jsonError(w, err.Error(), status)
+		return
+	}
+	telegramID := ident.ID
+	firstName := ident.FirstName
+	username := ident.Username
 
 	// Upsert tma_user
-	_, err := db.DB.Exec(`
+	_, err = db.DB.Exec(`
 		INSERT INTO tma_users (telegram_id, telegram_username, telegram_first_name, last_seen_at)
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (telegram_id) DO UPDATE
@@ -195,26 +254,39 @@ func TmaAuth(w http.ResponseWriter, r *http.Request) {
 	}, http.StatusOK)
 }
 
-// POST /api/tma/link-device — link a device_id to Telegram account (approval required)
+// POST /api/tma/link-device — link a device_id to the *authenticated* Telegram
+// account. The caller must supply a valid signed initData so the server can
+// derive the Telegram identity server-side; accepting a raw telegram_id from
+// the client would let anyone impersonate another Telegram user and harass a
+// legitimate node owner with spoofed approval prompts.
 func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TelegramID   int64  `json:"telegram_id"`
-		DeviceID     string `json:"device_id"`
-		TgUser       string `json:"tg_user"`
-		TgFirstName  string `json:"tg_first_name"`
+		InitData string `json:"init_data"`
+		DeviceID string `json:"device_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.TelegramID == 0 || req.DeviceID == "" {
-		jsonError(w, "telegram_id and device_id are required", http.StatusBadRequest)
+	if req.InitData == "" || req.DeviceID == "" {
+		jsonError(w, "init_data and device_id are required", http.StatusBadRequest)
 		return
 	}
 	if err := validateDeviceID(req.DeviceID); err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	ident, err := telegramUserFromInitData(req.InitData)
+	if err != nil {
+		if errors.Is(err, errInitDataBotTokenMissing) {
+			log.Printf("tma-link-device: %v", err)
+			jsonError(w, "auth not configured", http.StatusInternalServerError)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
 	// Verify device exists
 	var exists bool
 	_ = db.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM nodes WHERE device_id = $1)`, req.DeviceID).Scan(&exists)
@@ -225,35 +297,36 @@ func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Check if already linked
 	var currentStatus string
-	_ = db.DB.QueryRow(`SELECT status FROM tma_devices WHERE telegram_id = $1 AND device_id = $2`, req.TelegramID, req.DeviceID).Scan(&currentStatus)
+	_ = db.DB.QueryRow(`SELECT status FROM tma_devices WHERE telegram_id = $1 AND device_id = $2`, ident.ID, req.DeviceID).Scan(&currentStatus)
 	if currentStatus == "linked" {
 		jsonResponse(w, map[string]string{"status": "linked", "message": "device already linked"}, http.StatusOK)
 		return
 	}
 
-	requestID := models.UUID() // Helper to generate new request ID
-	
-	_, err := db.DB.Exec(`
+	requestID := models.UUID()
+
+	if _, err := db.DB.Exec(`
 		INSERT INTO tma_devices (telegram_id, device_id, status, request_id)
 		VALUES ($1, $2, 'pending', $3)
 		ON CONFLICT (telegram_id, device_id) DO UPDATE
 		SET status = 'pending', request_id = EXCLUDED.request_id`,
-		req.TelegramID, req.DeviceID, requestID,
-	)
-	if err != nil {
+		ident.ID, req.DeviceID, requestID,
+	); err != nil {
 		jsonError(w, "failed to initiate link: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Send WS request to node
+	// Notify the node so it can show an approval prompt. Fields come from the
+	// signed identity so a caller cannot spoof a different display name.
 	if runtimeHub != nil {
-		runtimeHub.BroadcastLinkRequest(req.DeviceID, req.TgUser, req.TgFirstName, requestID)
+		runtimeHub.BroadcastLinkRequest(req.DeviceID, ident.Username, ident.FirstName, requestID)
 	}
 
-	jsonResponse(w, map[string]string{
-		"status": "pending", 
-		"request_id": requestID,
-		"message": "Please approve the request on your mobile device",
+	jsonResponse(w, map[string]any{
+		"status":      "pending",
+		"request_id":  requestID,
+		"telegram_id": ident.ID,
+		"message":     "Please approve the request on your mobile device",
 	}, http.StatusAccepted)
 }
 

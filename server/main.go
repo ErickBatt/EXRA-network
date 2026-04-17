@@ -103,8 +103,8 @@ func main() {
 	r.HandleFunc("/api/payout/{id}/approve", proxyAuth(handlers.ApprovePayout)).Methods("POST")
 	r.HandleFunc("/api/payouts", proxyAuth(handlers.ListPayouts)).Methods("GET")
 	
-	// Payout v2
-	r.HandleFunc("/claim/{did}", handlers.ClaimPayoutHandler).Methods("POST")
+	// Payout v2 — caller must prove ownership of the DID via DIDAuth signature.
+	r.HandleFunc("/claim/{did}", nodeAuth(handlers.ClaimPayoutHandler)).Methods("POST")
 	
 	r.HandleFunc("/api/tokenomics/oracle/process", proxyAuth(handlers.ProcessOracleQueue)).Methods("POST")
 	r.HandleFunc("/api/tokenomics/oracle/queue", proxyAuth(handlers.GetOracleQueue)).Methods("GET")
