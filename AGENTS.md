@@ -2,7 +2,7 @@
 
 > **Читай этот файл в начале каждой сессии.**
 > Это единственный источник правды. Если документ противоречит другим файлам в `/docs` — этот файл выигрывает.
-> Последнее обновление: 17 апреля 2026 (Архитектура v2.2: DePIN Hardening + Compute Market Sync)
+> Последнее обновление: 18 апреля 2026 (Marketplace v2.4.1 forensic audit — 6 Sev-1 блокеров, 12 Sev-2)
 
 ---
 
@@ -279,6 +279,39 @@ EXRA_POLICY_FINALIZED=true
 ---
 
 ## 11. Известные долги (нужно сделать)
+
+### 🔴 Marketplace v2.4.1 Audit (2026-04-18) — БЛОКЕРЫ MVP-LAUNCH
+
+**Полный отчёт:** [AUDIT_MARKETPLACE_v2.4.1.md](AUDIT_MARKETPLACE_v2.4.1.md)
+**Исполняемые доказательства (падают на текущем коде):**
+- [server/gateway/stitch_test.go](server/gateway/stitch_test.go) — A1/A2/A3
+- [server/handlers/matcher_concurrency_test.go](server/handlers/matcher_concurrency_test.go) — B1/B2/B3
+- [server/hub/client_trust_test.go](server/hub/client_trust_test.go) — E1/E2/E3
+
+**P0 (блокирует launch, 1 спринт):**
+- [ ] **A1:** Race в `gateway/sessions.go::Stitch` — sync.Once + done-chan в waiter
+- [ ] **A3:** Bridge без IO-deadline → slowloris; `SetReadDeadline(90s)` в relay()
+- [ ] **B1:** Double-booking в `handlers/matcher.go` — atomic ZPOPMIN/Lua lease
+- [ ] **B2:** Формула матчера ≠ спеке; переписать на `0.5*RS + 0.25*latency + 0.25*geo`
+- [ ] **B3:** Balance-hold ДО выдачи Gateway JWT в `CreateOfferAndMatch`
+- [ ] **C1:** `hub.cleanupLoop` обнуляет active `lastResults` — заменить на LRU+TTL
+- [ ] **C2:** 7× `subscribeRedis*` без reconnect — обёртка `for { Subscribe; range; sleep+retry }`
+- [ ] **D1:** Убрать fallback `"default_gateway_secret_change_me_in_production"`, перейти на EdDSA (Control Plane подписывает, Gateway верифицирует)
+- [ ] **G3:** v2.1 Gateway не считает байты → нет биллинга; `atomic.AddInt64` + `HIncrByFloat` каждые 10 MB
+
+**P1 (закрывает фрод-векторы, 2 спринта):**
+- [ ] **E1:** `case "feeder_report"` в `hub/client.go:306-314` — требовать подпись sr25519 над `assignment_id||target||verdict||ts`
+- [ ] **E2:** Canary `"canary_expected_hash"` — заменить на per-task `sha256(server_nonce||task_payload)` + Feeder-side verification трафика
+- [ ] **E3:** Worker self-reports `type:"traffic"` без cross-check — сверять с buyer-side counter при FinalizeSession
+- [ ] **F1:** `oracle.ProcessOracleProposal` не верифицирует подпись перед 2/3-consensus
+- [ ] **G1:** `TunnelHandler` не проверяет, что подключившийся node — тот, что матчер выбрал
+- [ ] **C4:** `BindClientDeviceID` не закрывает старый Conn при rebind
+- [ ] **E4:** `toSubnet24` не обрабатывает IPv6 фермы
+- [ ] **D3:** `CheckOrigin: return true` → CSRF из браузера
+
+**P2 (performance, 3 спринта):** HRW + Redis Lua lease, splice(2) zero-copy bridge, Redis-stream heartbeat batching.
+
+**Компоненты «бетон» (не трогать):** `models/session.go::FinalizeSession`, `models/pop.go` (idempotencyKey), `models/fraud.go::FreezeNode`, `popChannel`, `DistributeReward`.
 
 ### MVP/Launch Блокеры (PEAQ Transition):
 - [x] **PEAQ:** Реализация peaq Pallet (Rust) для pallet_exra. (Done 2026-04-16)

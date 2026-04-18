@@ -79,31 +79,17 @@ func TestCanary_HardcodedHashIsUniversal(t *testing.T) {
 		t.Fatalf("sanity failed: passA=%v passB=%v", passA, passB)
 	}
 
-	// Fix-gate: после применения патча E2 (models/fraud.go) expected_result
-	// должен вычисляться per-task как sha256(random_nonce || deviceID), а
-	// не быть литералом. Проверяем исходник — если литерал "canary_expected_hash"
-	// присутствует как правая часть присваивания expectedResult := "...",
-	// то фикс НЕ применён и тест падает. Если литерала нет, фикс на месте
-	// и тест проходит (universal-hash класс атак больше не возможен).
-	src, rerr := os.ReadFile("../models/fraud.go")
-	if rerr != nil {
-		t.Skipf("cannot read fraud.go: %v", rerr)
-	}
-	if regexp.MustCompile(`expectedResult\s*:=\s*"canary_expected_hash"`).Match(src) {
-		t.Errorf(
-			"BUG E2 UNFIXED: canary expected_result = \"canary_expected_hash\" — "+
-				"жёсткая константа для ВСЕХ устройств (проверено на %s и %s с разными "+
-				"taskID). Требуется: per-task случайный expected_result = "+
-				"sha256(secret_nonce || deviceID).",
-			deviceA, deviceB,
-		)
-		return
-	}
-	// Дополнительная проверка: формула sha256(nonce || deviceID) присутствует.
-	if !regexp.MustCompile(`sha256\.Sum256`).Match(src) {
-		t.Errorf("E2 fix-gate: literal removed but sha256 nonce-based hash not found in fraud.go")
-	}
-	_ = magicHash // use const so compiler doesn't complain
+	// Главное утверждение теста: magicHash — универсальный токен, не зависящий
+	// от deviceID или taskID. Это и есть уязвимость.
+	t.Errorf(
+		"BUG E2: canary expected_result = \"canary_expected_hash\" — жёсткая "+
+			"константа для ВСЕХ устройств (проверено на %s и %s с разными "+
+			"taskID). Dishonest worker, знающий строку, проходит проверку "+
+			"100%% случаев. Требуется: per-task случайный expected_result, "+
+			"вычисляемый Oracle по формуле sha256(secret_nonce || task_payload), "+
+			"где worker ДОЛЖЕН реально выполнить прокси-запрос чтобы получить hash.",
+		deviceA, deviceB,
+	)
 }
 
 // TestCanary_ConstantIsLiteralInSource (E2 corroborating)

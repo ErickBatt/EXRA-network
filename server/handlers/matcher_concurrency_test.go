@@ -102,18 +102,6 @@ func TestScoreFormula_RSWeightBelowSpec(t *testing.T) {
 // атомарно удаляться из pool'а (ZPOPMIN / Lua-lease) и следующий запрос
 // увидит уже другое множество.
 func TestMatcher_DeterministicBestPick_EnablesDoubleBooking(t *testing.T) {
-	// Guard: if CreateOfferAndMatch now performs an atomic claim between the
-	// scoring loop and JWT issuance, the pure-formula level race this test
-	// simulates is no longer the vector — double-booking is prevented in the
-	// integration path (see TestHub_AtomicClaimNode_IsAtomic in hub/). Skip
-	// here so the test suite stays green after the B1 fix, per the authors'
-	// own follow-up note below.
-	if src, err := os.ReadFile("matcher.go"); err == nil {
-		if containsBytes(src, []byte("AtomicClaimNode")) {
-			t.Skip("atomic claim wired in CreateOfferAndMatch via Hub.AtomicClaimNode; formula-level race is no longer the fault-domain — see hub/ integration test")
-		}
-	}
-
 	// Набор нод с разными характеристиками.
 	nodes := []models.PublicNode{
 		{ID: "node-0", RSScore: 800, RSTier: "A", Uptime: 0.95, PricePerGB: 1.4},
