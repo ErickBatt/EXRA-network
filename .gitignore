@@ -19,8 +19,14 @@ Thumbs.db
 # Deploy artifacts (pre-built packages)
 deploy/dist/
 
-# IDEs
+# IDEs / agent tooling
 .vscode/
 .idea/
+.claude/
 *.swp
 *.bak
+
+# Landing build artefacts
+landing/.next/
+landing/node_modules/
+landing/out/

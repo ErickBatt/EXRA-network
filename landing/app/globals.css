@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-geist-sans: "Geist", "Inter", system-ui, sans-serif;
+    --font-geist-mono: "Geist Mono", ui-monospace, monospace;
+  }
+
+  * {
+    border-color: theme("colors.glass.border");
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(34, 211, 238, 0.10), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 90% 20%, rgba(167, 139, 250, 0.08), transparent 60%),
+      radial-gradient(ellipse 50% 30% at 10% 70%, rgba(34, 211, 238, 0.05), transparent 60%);
+    background-attachment: fixed;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: rgba(34, 211, 238, 0.3);
+    color: #fafafa;
+  }
+
+  /* Subtle scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #09090b;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(34, 211, 238, 0.3);
+  }
+}
+
+@layer components {
+  /* Glass surface — the workhorse class */
+  .glass {
+    @apply bg-glass-fill backdrop-blur-md border border-glass-border;
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+      0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .glass-elevated {
+    @apply bg-glass-fill backdrop-blur-xl border border-glass-borderBright;
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+      0 12px 48px 0 rgba(0, 0, 0, 0.5);
+  }
+
+  .glass-hover {
+    transition:
+      background-color 240ms ease,
+      border-color 240ms ease,
+      box-shadow 240ms ease,
+      transform 240ms ease;
+  }
+  .glass-hover:hover {
+    @apply bg-glass-fillHover border-glass-borderBright;
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+      0 0 0 1px rgba(34, 211, 238, 0.18),
+      0 12px 48px 0 rgba(0, 0, 0, 0.5),
+      0 0 24px 0 rgba(34, 211, 238, 0.12);
+    transform: translateY(-2px);
+  }
+
+  /* Gradient text — the brand signature */
+  .text-gradient {
+    background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .text-neon-gradient {
+    background: linear-gradient(135deg, #67e8f9 0%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Hairline divider with glow */
+  .hairline {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.08) 20%,
+      rgba(34, 211, 238, 0.4) 50%,
+      rgba(255, 255, 255, 0.08) 80%,
+      transparent 100%
+    );
+  }
+
+  /* Grid background utility for hero/sections */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 80%);
+  }
+
+  /* Shimmer line for buttons / loading */
+  .shimmer-line {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.4) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.5s linear infinite;
+  }
+
+  /* Eyebrow chip */
+  .eyebrow {
+    @apply inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium tracking-wide uppercase;
+    @apply bg-glass-fill border border-glass-border text-ink-muted;
+  }
+
+  /* Map ring & dot — used by WorldMap */
+  .pulse-ring {
+    transform-origin: center;
+    animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  }
+  .pulse-ring-delayed {
+    transform-origin: center;
+    animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    animation-delay: 1.2s;
+  }
+}
+
+@layer utilities {
+  /* Reduced motion guard for animation-heavy pieces */
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-ring,
+    .pulse-ring-delayed,
+    .animate-pulse-dot,
+    .animate-pulse-ring,
+    .animate-float-slow,
+    .animate-shimmer {
+      animation: none !important;
+    }
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
