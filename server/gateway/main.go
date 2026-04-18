@@ -7,10 +7,19 @@ import (
 	"os/signal"
 	"syscall"
 
+	"exra/gwclaims"
+
 	"github.com/gobwas/ws"
 )
 
 func main() {
+	// Fail fast if no verifying key is configured. There is no hardcoded
+	// fallback anymore (AUDIT §1 D1).
+	gwclaims.MustInitVerifier()
+
+	// Wire up Redis-backed billing settlement for AUDIT §1 G3.
+	initBilling()
+
 	port := os.Getenv("GATEWAY_PORT")
 	if port == "" {
 		port = "8082"
@@ -50,11 +59,12 @@ func main() {
 
 		log.Printf("[Gateway] Bridge starting: session=%s", claims.SessionID)
 
-		// 4. Start the Bridge
-		// This is a blocking call that will manage its own goroutines
-		Bridge(conn, counterpart)
+		// 4. Start the Bridge. Returns total bytes shipped in each direction
+		// so we can settle Redis credits on close (AUDIT §1 G3).
+		b1, b2 := Bridge(conn, counterpart)
+		settleSession(claims.SessionID, b1+b2)
 
-		log.Printf("[Gateway] Bridge closed: session=%s", claims.SessionID)
+		log.Printf("[Gateway] Bridge closed: session=%s bytes=%d", claims.SessionID, b1+b2)
 	})
 
 	server := &http.Server{

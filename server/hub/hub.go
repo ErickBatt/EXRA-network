@@ -38,6 +38,7 @@ type Hub struct {
 	unregister    chan *Client
 	resultWaiters map[string]chan ProxyResult
 	lastResults   map[string]ProxyResult
+	lastResultsAt map[string]time.Time // AUDIT §1 C1: per-entry insert time for TTL eviction
 	rc            *redis.Client
 	mapWaiters    map[string]chan MapEvent
 	mapMu         sync.RWMutex
@@ -53,6 +54,7 @@ func NewHub() *Hub {
 		unregister:    make(chan *Client, 16384),
 		resultWaiters: make(map[string]chan ProxyResult),
 		lastResults:   make(map[string]ProxyResult),
+		lastResultsAt: make(map[string]time.Time),
 		mapWaiters:    make(map[string]chan MapEvent),
 	}
 	go h.cleanupLoop()
@@ -105,52 +107,70 @@ type ProxyCmd struct {
 	SessionID string `json:"session_id"`
 }
 
+// pubsubReconnectDelay gates how fast we resubscribe after a channel close.
+// AUDIT §1 C2: the previous code ranged over `pubsub.Channel()` once; when
+// go-redis closed the channel (server restart, connection drop), the goroutine
+// exited silently and the gateway lost cross-node routing until a full
+// re-deploy. We now loop forever, reopen the subscription, and log each
+// reconnect.
+const pubsubReconnectDelay = 2 * time.Second
+
 func (h *Hub) subscribeRedisProxyStart() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:proxy_cmd")
-	for msg := range pubsub.Channel() {
-		var cmd ProxyCmd
-		if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
-			continue
-		}
-		if client, ok := h.GetClient(cmd.DeviceID); ok {
-			payload, _ := json.Marshal(map[string]string{
-				"type":       "proxy_start",
-				"session_id": cmd.SessionID,
-			})
-			select {
-			case client.Send <- payload:
-			default:
-				log.Printf("[Redis] proxy_start dropped for device_id=%s queue full", cmd.DeviceID)
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:proxy_cmd")
+		for msg := range pubsub.Channel() {
+			var cmd ProxyCmd
+			if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+				continue
+			}
+			if client, ok := h.GetClient(cmd.DeviceID); ok {
+				payload, _ := json.Marshal(map[string]string{
+					"type":       "proxy_start",
+					"session_id": cmd.SessionID,
+				})
+				select {
+				case client.Send <- payload:
+				default:
+					log.Printf("[Redis] proxy_start dropped for device_id=%s queue full", cmd.DeviceID)
+				}
 			}
 		}
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:proxy_cmd closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
 func (h *Hub) subscribeRedisProxyOpen() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:proxy_open")
-	for msg := range pubsub.Channel() {
-		var cmd struct {
-			DeviceID   string `json:"device_id"`
-			SessionID  string `json:"session_id"`
-			TargetHost string `json:"target_host"`
-			TargetPort int    `json:"target_port"`
-		}
-		if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
-			continue
-		}
-		if client, ok := h.GetClient(cmd.DeviceID); ok {
-			payload, _ := json.Marshal(map[string]interface{}{
-				"type":        "proxy_open",
-				"session_id":  cmd.SessionID,
-				"target_host": cmd.TargetHost,
-				"target_port": cmd.TargetPort,
-			})
-			select {
-			case client.Send <- payload:
-			default:
-				log.Printf("[Redis] proxy_open dropped for device_id=%s queue full", cmd.DeviceID)
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:proxy_open")
+		for msg := range pubsub.Channel() {
+			var cmd struct {
+				DeviceID   string `json:"device_id"`
+				SessionID  string `json:"session_id"`
+				TargetHost string `json:"target_host"`
+				TargetPort int    `json:"target_port"`
+			}
+			if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+				continue
+			}
+			if client, ok := h.GetClient(cmd.DeviceID); ok {
+				payload, _ := json.Marshal(map[string]interface{}{
+					"type":        "proxy_open",
+					"session_id":  cmd.SessionID,
+					"target_host": cmd.TargetHost,
+					"target_port": cmd.TargetPort,
+				})
+				select {
+				case client.Send <- payload:
+				default:
+					log.Printf("[Redis] proxy_open dropped for device_id=%s queue full", cmd.DeviceID)
+				}
 			}
 		}
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:proxy_open closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
@@ -209,82 +229,98 @@ func (h *Hub) BroadcastLinkRequest(deviceID, tgUser, tgName, requestId string) {
 }
 
 func (h *Hub) subscribeRedisProxyResult() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:proxy_result")
-	for msg := range pubsub.Channel() {
-		var res ProxyResult
-		if err := json.Unmarshal([]byte(msg.Payload), &res); err != nil {
-			continue
-		}
-		// If someone locally is waiting for this Result, serve it
-		h.mu.RLock()
-		ch, ok := h.resultWaiters[res.SessionID]
-		h.mu.RUnlock()
-
-		if ok {
-			select {
-			case ch <- res:
-			default:
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:proxy_result")
+		for msg := range pubsub.Channel() {
+			var res ProxyResult
+			if err := json.Unmarshal([]byte(msg.Payload), &res); err != nil {
+				continue
 			}
+			// If someone locally is waiting for this Result, serve it
+			h.mu.RLock()
+			ch, ok := h.resultWaiters[res.SessionID]
+			h.mu.RUnlock()
+
+			if ok {
+				select {
+				case ch <- res:
+				default:
+				}
+			}
+			h.mu.Lock()
+			h.lastResults[res.SessionID] = res
+			h.lastResultsAt[res.SessionID] = time.Now()
+			h.mu.Unlock()
 		}
-		h.mu.Lock()
-		h.lastResults[res.SessionID] = res
-		h.mu.Unlock()
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:proxy_result closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
 func (h *Hub) subscribeRedisComputeTask() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:compute_task")
-	for msg := range pubsub.Channel() {
-		var cmd struct {
-			NodeID string             `json:"node_id"`
-			Task   models.ComputeTask `json:"task"`
-		}
-		if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
-			continue
-		}
-		if client, ok := h.GetClient(cmd.NodeID); ok {
-			payload, _ := json.Marshal(map[string]interface{}{
-				"type":       "compute_task",
-				"task_id":    cmd.Task.ID,
-				"task_type":  cmd.Task.TaskType,
-				"input_url":  cmd.Task.InputURL,
-				"requirements": cmd.Task.Requirements,
-			})
-			select {
-			case client.Send <- payload:
-			default:
-				log.Printf("[Redis] compute_task dropped for device_id=%s queue full", cmd.NodeID)
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:compute_task")
+		for msg := range pubsub.Channel() {
+			var cmd struct {
+				NodeID string             `json:"node_id"`
+				Task   models.ComputeTask `json:"task"`
+			}
+			if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+				continue
+			}
+			if client, ok := h.GetClient(cmd.NodeID); ok {
+				payload, _ := json.Marshal(map[string]interface{}{
+					"type":       "compute_task",
+					"task_id":    cmd.Task.ID,
+					"task_type":  cmd.Task.TaskType,
+					"input_url":  cmd.Task.InputURL,
+					"requirements": cmd.Task.Requirements,
+				})
+				select {
+				case client.Send <- payload:
+				default:
+					log.Printf("[Redis] compute_task dropped for device_id=%s queue full", cmd.NodeID)
+				}
 			}
 		}
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:compute_task closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
 
 func (h *Hub) subscribeRedisLinkRequest() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:link_request")
-	for msg := range pubsub.Channel() {
-		var cmd struct {
-			DeviceID    string `json:"device_id"`
-			TgUser      string `json:"tg_user"`
-			TgFirstName string `json:"tg_first_name"`
-			RequestID   string `json:"request_id"`
-		}
-		if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
-			continue
-		}
-		if client, ok := h.GetClient(cmd.DeviceID); ok {
-			payload, _ := json.Marshal(map[string]string{
-				"type":          "link_request",
-				"tg_user":       cmd.TgUser,
-				"tg_first_name": cmd.TgFirstName,
-				"request_id":    cmd.RequestID,
-			})
-			select {
-			case client.Send <- payload:
-			default:
-				log.Printf("[Redis] link_request dropped for device_id=%s queue full", cmd.DeviceID)
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:link_request")
+		for msg := range pubsub.Channel() {
+			var cmd struct {
+				DeviceID    string `json:"device_id"`
+				TgUser      string `json:"tg_user"`
+				TgFirstName string `json:"tg_first_name"`
+				RequestID   string `json:"request_id"`
+			}
+			if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+				continue
+			}
+			if client, ok := h.GetClient(cmd.DeviceID); ok {
+				payload, _ := json.Marshal(map[string]string{
+					"type":          "link_request",
+					"tg_user":       cmd.TgUser,
+					"tg_first_name": cmd.TgFirstName,
+					"request_id":    cmd.RequestID,
+				})
+				select {
+				case client.Send <- payload:
+				default:
+					log.Printf("[Redis] link_request dropped for device_id=%s queue full", cmd.DeviceID)
+				}
 			}
 		}
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:link_request closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
@@ -306,16 +342,21 @@ func (h *Hub) IsGlobalPause() bool {
 }
 
 func (h *Hub) subscribeRedisOracleProposal() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:oracle_proposal")
-	for msg := range pubsub.Channel() {
-		var prop models.OracleProposal
-		if err := json.Unmarshal([]byte(msg.Payload), &prop); err != nil {
-			continue
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:oracle_proposal")
+		for msg := range pubsub.Channel() {
+			var prop models.OracleProposal
+			if err := json.Unmarshal([]byte(msg.Payload), &prop); err != nil {
+				continue
+			}
+			// Dispatch to oracle logic if callback is set
+			if h.OnOracleProposal != nil {
+				h.OnOracleProposal(prop)
+			}
 		}
-		// Dispatch to oracle logic if callback is set
-		if h.OnOracleProposal != nil {
-			h.OnOracleProposal(prop)
-		}
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:oracle_proposal closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
@@ -359,30 +400,35 @@ func (h *Hub) BroadcastComputeTask(nodeID string, task *models.ComputeTask) {
 }
 
 func (h *Hub) subscribeRedisFeederAudit() {
-	pubsub := h.rc.Subscribe(context.Background(), "Exra:feeder_audit")
-	for msg := range pubsub.Channel() {
-		var cmd struct {
-			FeederID     string `json:"feeder_id"`
-			AssignmentID int64  `json:"assignment_id"`
-			TargetIP     string `json:"target_ip"`
-			TargetPort   int    `json:"target_port"`
-		}
-		if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
-			continue
-		}
-		if client, ok := h.GetClient(cmd.FeederID); ok {
-			payload, _ := json.Marshal(map[string]interface{}{
-				"type":          "feeder_audit",
-				"assignment_id": cmd.AssignmentID,
-				"target_ip":     cmd.TargetIP,
-				"target_port":   cmd.TargetPort,
-			})
-			select {
-			case client.Send <- payload:
-			default:
-				log.Printf("[Redis] feeder_audit dropped for device_id=%s queue full", cmd.FeederID)
+	for {
+		pubsub := h.rc.Subscribe(context.Background(), "Exra:feeder_audit")
+		for msg := range pubsub.Channel() {
+			var cmd struct {
+				FeederID     string `json:"feeder_id"`
+				AssignmentID int64  `json:"assignment_id"`
+				TargetIP     string `json:"target_ip"`
+				TargetPort   int    `json:"target_port"`
+			}
+			if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+				continue
+			}
+			if client, ok := h.GetClient(cmd.FeederID); ok {
+				payload, _ := json.Marshal(map[string]interface{}{
+					"type":          "feeder_audit",
+					"assignment_id": cmd.AssignmentID,
+					"target_ip":     cmd.TargetIP,
+					"target_port":   cmd.TargetPort,
+				})
+				select {
+				case client.Send <- payload:
+				default:
+					log.Printf("[Redis] feeder_audit dropped for device_id=%s queue full", cmd.FeederID)
+				}
 			}
 		}
+		_ = pubsub.Close()
+		log.Printf("[Hub] pubsub Exra:feeder_audit closed, reconnecting in %s", pubsubReconnectDelay)
+		time.Sleep(pubsubReconnectDelay)
 	}
 }
 
@@ -432,6 +478,7 @@ func (h *Hub) BroadcastProxyResult(res *ProxyResult) {
 	}
 	h.mu.Lock()
 	h.lastResults[res.SessionID] = *res
+	h.lastResultsAt[res.SessionID] = time.Now()
 	h.mu.Unlock()
 }
 
@@ -453,25 +500,38 @@ func (h *Hub) Run() {
 			if ok && current == client {
 				delete(h.clients, client.DeviceID)
 				metrics.ActiveNodes.Dec()
-				close(client.Send)
+				client.CloseSend()
 			}
 			h.mu.Unlock()
 		}
 	}
 }
 
+// cleanupLoop evicts only proxy results older than lastResultsTTL (AUDIT §1
+// C1). The previous implementation nuked the whole map once it crossed 5000
+// entries, which dropped in-flight results whose waiters were still registered
+// — buyers would see spurious timeouts during bursts. We now walk the timestamp
+// index and delete per-entry, preserving anything recent.
+const lastResultsTTL = 30 * time.Minute
+
 func (h *Hub) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	for range ticker.C {
+		cutoff := time.Now().Add(-lastResultsTTL)
 		h.mu.Lock()
-		// Clear stale proxy results to prevent memory leak
-		// In production, we would use a proper TTL/LRU, but for this scale
-		// regular purging of the map is sufficient.
-		if len(h.lastResults) > 5000 {
-			h.lastResults = make(map[string]ProxyResult)
-			log.Printf("[Hub] Purged %d stale proxy results from memory", 5000)
+		evicted := 0
+		for sid, at := range h.lastResultsAt {
+			if at.Before(cutoff) {
+				delete(h.lastResults, sid)
+				delete(h.lastResultsAt, sid)
+				evicted++
+			}
 		}
+		total := len(h.lastResults)
 		h.mu.Unlock()
+		if evicted > 0 {
+			log.Printf("[Hub] cleanupLoop: evicted %d stale proxy results (%d remaining)", evicted, total)
+		}
 	}
 }
 
@@ -534,6 +594,7 @@ func (h *Hub) AwaitProxyResult(sessionID string, timeout time.Duration) (ProxyRe
 func (h *Hub) HandleProxyResult(res ProxyResult) {
 	h.mu.Lock()
 	h.lastResults[res.SessionID] = res
+	h.lastResultsAt[res.SessionID] = time.Now()
 	if ch, ok := h.resultWaiters[res.SessionID]; ok {
 		select {
 		case ch <- res:
@@ -617,6 +678,74 @@ func (h *Hub) RemoveNodeFromRedis(ctx context.Context, country, rsTier string, p
 	return h.rc.ZRem(ctx, key, pubNodeJSON).Err()
 }
 
+// claimNodeLua atomically:
+//  1. Checks that no other session currently leases this node (lease key
+//     absent or expired).
+//  2. Removes the node member from the discovery ZSET so no concurrent
+//     matcher sees it.
+//  3. Writes a lease key with TTL tying the node to sessionID.
+//
+// KEYS[1]  discovery ZSET  ("nodes:<country>:<tier>")
+// KEYS[2]  lease key       ("lease:node:<deviceID>")
+// ARGV[1]  pubNodeJSON     exact ZSET member to remove
+// ARGV[2]  sessionID
+// ARGV[3]  ttl seconds
+//
+// Returns 1 on successful claim, 0 if another session already holds the lease.
+// If the discovery ZSET no longer contains the member (another matcher just
+// claimed it) we also return 0.
+var claimNodeLua = redis.NewScript(`
+if redis.call("EXISTS", KEYS[2]) == 1 then
+    return 0
+end
+local removed = redis.call("ZREM", KEYS[1], ARGV[1])
+if removed == 0 then
+    return 0
+end
+redis.call("SET", KEYS[2], ARGV[2], "EX", tonumber(ARGV[3]))
+return 1
+`)
+
+// AtomicClaimNode wires the B1 fix (AUDIT_MARKETPLACE_v2.4.1 §1 B1): the
+// Matcher used to ZRange-top-10 → pick best → return JWT, with no step that
+// actually removed the chosen node from the pool. Two concurrent CreateOffer
+// requests therefore booked the same node, and the Gateway only served one of
+// them — the other buyer hung 30s and got a 502.
+//
+// This call should be invoked immediately after the scoring loop picks
+// bestNode and BEFORE any JWT is issued. On success, the node is removed from
+// the discovery ZSET and a TTL'd lease key is written. On failure (someone
+// else won the race or the lease already exists), the caller must fall back
+// to the next-best candidate or return no-nodes-available.
+//
+// If Redis is not configured (local dev), the claim is a no-op and returns
+// true — double-booking is a horizontal-scaling concern.
+func (h *Hub) AtomicClaimNode(ctx context.Context, country, rsTier, deviceID, pubNodeJSON, sessionID string, ttl time.Duration) (bool, error) {
+	if h.rc == nil {
+		return true, nil
+	}
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	zsetKey := fmt.Sprintf(KeyPrefixNodes, country, rsTier)
+	leaseKey := "lease:node:" + deviceID
+	res, err := claimNodeLua.Run(ctx, h.rc, []string{zsetKey, leaseKey}, pubNodeJSON, sessionID, int(ttl.Seconds())).Int()
+	if err != nil {
+		return false, err
+	}
+	return res == 1, nil
+}
+
+// ReleaseNodeLease removes a lease previously created by AtomicClaimNode,
+// e.g. when the session never opens on the Gateway. The caller is expected to
+// independently re-add the node back to the discovery ZSET if appropriate.
+func (h *Hub) ReleaseNodeLease(ctx context.Context, deviceID string) error {
+	if h.rc == nil {
+		return nil
+	}
+	return h.rc.Del(ctx, "lease:node:"+deviceID).Err()
+}
+
 // CreateSessionInRedis initializes a micro-billing session.
 func (h *Hub) CreateSessionInRedis(ctx context.Context, jwt string, data map[string]interface{}) error {
 	if h.rc == nil {
@@ -634,5 +763,21 @@ func (h *Hub) DeductSessionBalance(ctx context.Context, jwt string, cost float64
 	key := fmt.Sprintf(KeyPrefixSessions, jwt)
 	// cost is deducted from 'credits' field
 	return h.rc.HIncrByFloat(ctx, key, "credits", -cost).Result()
+}
+
+// GetSessionNodeDID returns the DID of the node the matcher bound to the
+// session, or "" (and a nil error) when the key is missing. Used by
+// TunnelHandler to enforce AUDIT §1 G1 — only the matcher-chosen node may
+// open the reverse tunnel for a session.
+func (h *Hub) GetSessionNodeDID(ctx context.Context, sessionID string) (string, error) {
+	if h.rc == nil || sessionID == "" {
+		return "", nil
+	}
+	key := fmt.Sprintf(KeyPrefixSessions, sessionID)
+	v, err := h.rc.HGet(ctx, key, "node_did").Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return v, err
 }
 

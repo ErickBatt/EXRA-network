@@ -11,12 +11,65 @@ import (
 	"math/big"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/ChainSafe/go-schnorrkel"
 	"github.com/centrifuge/go-substrate-rpc-client/v4/signature"
 	"github.com/centrifuge/go-substrate-rpc-client/v4/types"
 )
+
+// verifyProposalSignature validates an sr25519 signature produced by
+// signature.Sign(hashBytes, seed) in SaveOracleProposal. Verifies that
+// `sigHex` is signed by `oracleID` (hex-encoded 32-byte public key) over
+// the hex-decoded `payloadHash`.
+//
+// AUDIT §1 F1: the previous consensus path stored signatures verbatim and
+// never verified them, so any peer could forge oracle_signatures rows for
+// arbitrary oracleIDs and reach 2/3 consensus by brute adversarial count.
+// We now reject any proposal whose signature does not verify.
+//
+// Implemented inline (not via middleware.VerifyDIDSignature) to avoid a
+// circular import between models → middleware → models.
+func verifyProposalSignature(payloadHash, oracleID, sigHex string) bool {
+	if payloadHash == "" || oracleID == "" || sigHex == "" {
+		return false
+	}
+	sigBytes, err := hex.DecodeString(strings.TrimPrefix(sigHex, "0x"))
+	if err != nil || len(sigBytes) != 64 {
+		return false
+	}
+	pubBytes, err := hex.DecodeString(strings.TrimPrefix(oracleID, "0x"))
+	if err != nil || len(pubBytes) != 32 {
+		return false
+	}
+	msg, err := hex.DecodeString(payloadHash)
+	if err != nil {
+		return false
+	}
+
+	var sigArr [64]byte
+	copy(sigArr[:], sigBytes)
+	var pubArr [32]byte
+	copy(pubArr[:], pubBytes)
+
+	publicKey, err := schnorrkel.NewPublicKey(pubArr)
+	if err != nil {
+		return false
+	}
+	sig := &schnorrkel.Signature{}
+	if err := sig.Decode(sigArr); err != nil {
+		return false
+	}
+	ctx := schnorrkel.NewSigningContext([]byte("substrate"), msg)
+	ok, err := publicKey.Verify(sig, ctx)
+	if err != nil {
+		log.Printf("[Oracle] F1 verify error oracle=%s: %v", oracleID, err)
+		return false
+	}
+	return ok
+}
 
 var (
 	peaqClient peaq.BlockchainClient
@@ -185,6 +238,14 @@ func SaveOracleProposal(date time.Time, oracleID, hash string, dist map[string]f
 // ProcessOracleProposal is called when a peer oracle broadcasts its payload hash.
 func ProcessOracleProposal(prop OracleProposal, oracleNodes int) {
 	log.Printf("[Oracle] Received proposal from %s for %s: %s", prop.OracleID, prop.BatchDate, prop.PayloadHash)
+
+	// AUDIT §1 F1: verify the sr25519 signature before persisting anything.
+	// Rejecting forged proposals early prevents them from counting toward
+	// the 2/3 threshold and prevents unbounded rows in oracle_signatures.
+	if !verifyProposalSignature(prop.PayloadHash, prop.OracleID, prop.Signature) {
+		log.Printf("[Oracle] Rejecting proposal from %s: invalid signature (batch=%s)", prop.OracleID, prop.BatchDate)
+		return
+	}
 
 	tx, err := db.DB.Begin()
 	if err != nil {

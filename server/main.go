@@ -13,6 +13,7 @@ import (
 
 	"exra/config"
 	"exra/db"
+	"exra/gwclaims"
 	"exra/handlers"
 	"exra/hub"
 	"exra/middleware"
@@ -25,6 +26,10 @@ import (
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	cfg := config.LoadConfig()
+
+	// Fail fast if no Gateway-JWT signing key is configured. There is no
+	// hardcoded fallback anymore (AUDIT §1 D1).
+	gwclaims.MustInitSigner()
 	db.Init(cfg.SupabaseURL)
 	handlers.SetRatePerGB(cfg.RatePerGB)
 	maxSupply, _ := strconv.ParseFloat(cfg.ExraMaxSupply, 64)

@@ -50,8 +50,11 @@ func TestCreateCanaryTask(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	now := time.Now()
+	// AUDIT §1 E2: expected_result is now a per-task sha256 over a random
+	// nonce + deviceID, not a hardcoded literal. sqlmock.AnyArg() matches
+	// the randomised hex digest.
 	mock.ExpectQuery(`INSERT INTO canary_tasks`).
-		WithArgs(deviceID, "canary_expected_hash").
+		WithArgs(deviceID, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "device_id", "task_type", "expected_result", "result", "injected_at"}).
 			AddRow(int64(42), deviceID, "proxy_hash", "canary_expected_hash", "pending", now))
 

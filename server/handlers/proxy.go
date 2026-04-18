@@ -287,10 +287,66 @@ func HTTPConnectProxy(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/node/tunnel?session_id=...
 // Nodes connect here to provide raw TCP tunnel for a specific session.
+//
+// AUDIT §1 G1: previously this handler accepted any nodeAuth-authenticated
+// caller claiming any session_id, so any registered node could steal an
+// in-flight session's data plane. We now require the caller to prove they
+// are the node the matcher bound to the session:
+//
+//  1. Session must exist in Redis and have a recorded node_did.
+//  2. Caller must supply X-Device-ID + X-Device-Sig (hex sr25519 sig over
+//     the raw session_id).
+//  3. The claimed device_id must resolve to the same DID the matcher stored
+//     against the session.
+//  4. The signature must verify under that node's registered public key.
+//
+// If any step fails we return 403 before the hijack — the bogus caller is
+// not granted a raw TCP tunnel.
 func TunnelHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
 		http.Error(w, "session_id required", http.StatusBadRequest)
+		return
+	}
+
+	claimedDeviceID := r.Header.Get("X-Device-ID")
+	claimedSig := r.Header.Get("X-Device-Sig")
+	if claimedDeviceID == "" || claimedSig == "" {
+		http.Error(w, "forbidden: missing device proof", http.StatusForbidden)
+		return
+	}
+
+	if runtimeHub == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	expectedDID, err := runtimeHub.GetSessionNodeDID(r.Context(), sessionID)
+	if err != nil {
+		log.Printf("[Tunnel] G1 session lookup failed session=%s err=%v", sessionID, err)
+		http.Error(w, "session lookup failed", http.StatusInternalServerError)
+		return
+	}
+	if expectedDID == "" {
+		http.Error(w, "forbidden: unknown session", http.StatusForbidden)
+		return
+	}
+
+	pubKey, did, err := models.GetNodeAuthByDeviceID(claimedDeviceID)
+	if err != nil || pubKey == "" || did == "" {
+		log.Printf("[Tunnel] G1 rejecting device=%s: node record missing (err=%v)", claimedDeviceID, err)
+		http.Error(w, "forbidden: unknown device", http.StatusForbidden)
+		return
+	}
+	if did != expectedDID {
+		log.Printf("[Tunnel] G1 rejecting device=%s: DID mismatch (claimed=%s expected=%s) session=%s", claimedDeviceID, did, expectedDID, sessionID)
+		http.Error(w, "forbidden: node not authorised for session", http.StatusForbidden)
+		return
+	}
+	okSig, err := middleware.VerifyDIDSignature(pubKey, sessionID, claimedSig)
+	if err != nil || !okSig {
+		log.Printf("[Tunnel] G1 rejecting device=%s: invalid signature (err=%v)", claimedDeviceID, err)
+		http.Error(w, "forbidden: invalid signature", http.StatusForbidden)
 		return
 	}
 
@@ -306,7 +362,6 @@ func TunnelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Register the hijacked connection as the data tunnel for the session
 	if !hub.GetTunnelManager().RegisterTunnel(sessionID, conn) {
 		conn.Close()
 	}

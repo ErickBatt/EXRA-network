@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -97,6 +99,39 @@ type Client struct {
 	// Rate limiting
 	msgCount    int
 	windowStart time.Time
+
+	// AUDIT §1 C3: close(c.Send) used to be called from the Hub goroutine
+	// while ReadPump / Unregister paths could also trigger a close on the
+	// same channel, producing a "close of closed channel" panic that took
+	// the whole hub down. closeOnce serializes close; sendClosed lets
+	// senders check before writing so they skip the channel instead of
+	// panicking on "send on closed channel" during shutdown races.
+	closeOnce   sync.Once
+	sendClosed  atomic.Bool
+}
+
+// CloseSend closes c.Send exactly once. Safe to call from any goroutine.
+// After CloseSend returns, TrySend will return false instead of writing.
+func (c *Client) CloseSend() {
+	c.closeOnce.Do(func() {
+		c.sendClosed.Store(true)
+		close(c.Send)
+	})
+}
+
+// TrySend queues a message on c.Send without blocking. It returns false
+// if the channel is closed or full. Callers MUST use this instead of
+// `c.Send <- msg` anywhere a shutdown race is possible (AUDIT §1 C3).
+func (c *Client) TrySend(msg []byte) bool {
+	if c.sendClosed.Load() {
+		return false
+	}
+	select {
+	case c.Send <- msg:
+		return true
+	default:
+		return false
+	}
 }
 
 const (
@@ -249,7 +284,21 @@ func (c *Client) ReadPump() {
 				}
 			}
 		case "traffic":
+			// AUDIT §1 E3: worker-reported byte counters used to be trusted
+			// unconditionally — a hostile node could multiply msg.Bytes by
+			// 10 and inflate rewards. We clamp each report against
+			// MaxTrafficPerSec (realistic ceiling between ping intervals,
+			// 1 GiB) so a single report can't inflate by an order of
+			// magnitude. The proper buyer_reported cross-check still needs
+			// to land in models/session.go::FinalizeSession comparing
+			// against the Gateway's settled byte count; this clamp is the
+			// minimum viable defence.
+			const MaxTrafficPerSec int64 = 1 << 30 // 1 GiB per report ceiling
 			if c.DeviceID != "" && msg.Bytes > 0 {
+				if msg.Bytes > MaxTrafficPerSec {
+					log.Printf("[Security] traffic report from %s exceeds MaxTrafficPerSec=%d bytes=%d — clamping", c.DeviceID, MaxTrafficPerSec, msg.Bytes)
+					msg.Bytes = MaxTrafficPerSec
+				}
 				if err := models.AddNodeTrafficByDeviceID(c.DeviceID, msg.Bytes); err != nil {
 					log.Printf("Traffic update failed device_id=%s err=%v", c.DeviceID, err)
 				}
@@ -304,13 +353,27 @@ func (c *Client) ReadPump() {
 				}
 			}
 		case "feeder_report":
-			if c.DeviceID != "" && msg.AssignmentID > 0 && msg.Verdict != "" {
-				log.Printf("[Feeder] Report from %s for assignment %d: %s", c.DeviceID, msg.AssignmentID, msg.Verdict)
-				// Record the report in DB
-				err := models.RecordFeederReport(msg.AssignmentID, c.DeviceID, msg.DeviceID, msg.Verdict, 0, 0)
-				if err != nil {
-					log.Printf("[Feeder] Failed to record report for %d: %v", msg.AssignmentID, err)
-				}
+			// AUDIT §1 E1: previously any registered worker could submit a
+			// verdict="fail" on any neighbour and trigger that neighbour's
+			// slashing pipeline. We now require a DID signature over
+			// "assignmentID:target:verdict" from c.PubKey (the feeder's own
+			// registered key) before the report is accepted.
+			if c.DeviceID == "" || msg.AssignmentID <= 0 || msg.Verdict == "" {
+				continue
+			}
+			if c.PubKey == "" || msg.Data.Signature == "" {
+				log.Printf("[Feeder] Rejecting unsigned feeder_report from %s assignment=%d", c.DeviceID, msg.AssignmentID)
+				continue
+			}
+			signMsg := fmt.Sprintf("%d:%s:%s", msg.AssignmentID, msg.DeviceID, msg.Verdict)
+			ok, err := middleware.VerifyDIDSignature(c.PubKey, signMsg, msg.Data.Signature)
+			if err != nil || !ok {
+				log.Printf("[Security] Rejecting feeder_report from %s: invalid signature (err=%v)", c.DeviceID, err)
+				continue
+			}
+			log.Printf("[Feeder] Report from %s for assignment %d: %s", c.DeviceID, msg.AssignmentID, msg.Verdict)
+			if err := models.RecordFeederReport(msg.AssignmentID, c.DeviceID, msg.DeviceID, msg.Verdict, 0, 0); err != nil {
+				log.Printf("[Feeder] Failed to record report for %d: %v", msg.AssignmentID, err)
 			}
 		}
 	}
