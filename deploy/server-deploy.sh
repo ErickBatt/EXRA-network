@@ -59,19 +59,75 @@ if [ ! -f "${ENV_FILE}" ]; then
   fi
 fi
 
-# Проверяем что ключевые vars не содержат REPLACE_* плейсхолдеры
-MISSING_VARS=()
-for var in WS_ALLOWED_ORIGINS GATEWAY_JWT_PUBLIC_KEY GATEWAY_JWT_PRIVATE_KEY PEAQ_ORACLE_SEED; do
+# Проверяем что ключевые vars не содержат REPLACE_* плейсхолдеры.
+# Для JWT ключей принимаем либо EdDSA пару (PRIV+PUB), либо транзитивный HMAC SECRET.
+check_var() {
+  local var="$1"
+  local val
   val=$(grep -E "^${var}=" "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '"' || true)
-  if [ -z "${val}" ] || [[ "${val}" == REPLACE_* ]]; then
-    MISSING_VARS+=("${var}")
-  fi
+  [ -n "${val}" ] && [[ "${val}" != REPLACE_* ]]
+}
+
+MISSING_VARS=()
+for var in WS_ALLOWED_ORIGINS PEAQ_ORACLE_SEED; do
+  check_var "${var}" || MISSING_VARS+=("${var}")
 done
+
+# JWT: нужна либо EdDSA пара, либо транзитивный HMAC
+if ! { check_var GATEWAY_JWT_ED25519_PRIV && check_var GATEWAY_JWT_ED25519_PUB; } \
+   && ! check_var GATEWAY_JWT_SECRET; then
+  MISSING_VARS+=("GATEWAY_JWT_ED25519_PRIV+PUB или GATEWAY_JWT_SECRET")
+fi
 
 if [ ${#MISSING_VARS[@]} -gt 0 ]; then
   fail "В ${ENV_FILE} не заполнены audit v2.4.1 переменные: ${MISSING_VARS[*]}. Сервер не стартанёт в secure-режиме. Заполни и запусти ещё раз."
 fi
 ok "/etc/exra.env — audit v2.4.1 переменные выставлены"
+
+# ============================================================
+# 0. DB MIGRATIONS (идемпотентные — ALTER IF NOT EXISTS / CREATE IF NOT EXISTS)
+# ============================================================
+step "0/4 Применение DB миграций"
+
+MIG_DIR_DST="/root/exra/server/migrations"
+if [ -d "${SCRIPT_DIR}/migrations" ]; then
+  mkdir -p "${MIG_DIR_DST}"
+  cp "${SCRIPT_DIR}/migrations/"*.sql "${MIG_DIR_DST}/"
+  ok "Миграции скопированы → ${MIG_DIR_DST}"
+
+  # Извлекаем DB имя из SUPABASE_URL в env (postgres://user:pass@host/DBNAME?...)
+  DB_NAME=$(grep -E "^SUPABASE_URL=" "${ENV_FILE}" | head -1 | sed -E 's|.*/([^/?]+)(\?.*)?$|\1|')
+  DB_NAME="${DB_NAME:-exra}"
+  ok "Target DB: ${DB_NAME}"
+
+  FAILED_MIGS=()
+  for f in $(ls "${MIG_DIR_DST}"/*.sql | sort); do
+    name=$(basename "$f")
+    # UTF-8 check — пропускаем файлы с невалидным encoding (типа 009_buyer_email.sql)
+    if ! iconv -f utf-8 -t utf-8 "$f" >/dev/null 2>&1; then
+      warn "  SKIP ${name} (невалидный UTF-8)"
+      continue
+    fi
+    if sudo -u postgres psql "${DB_NAME}" -v ON_ERROR_STOP=0 -q -f "$f" >/tmp/mig.log 2>&1; then
+      ok "  ${name}"
+    else
+      # ON_ERROR_STOP=0 — продолжаем, но логируем критичные ошибки (не "already exists")
+      if grep -qvE "already exists|does not exist, skipping|NOTICE" /tmp/mig.log; then
+        tail -3 /tmp/mig.log | while IFS= read -r line; do
+          warn "    ${line}"
+        done
+      fi
+      FAILED_MIGS+=("${name}")
+    fi
+  done
+  rm -f /tmp/mig.log
+
+  if [ ${#FAILED_MIGS[@]} -gt 0 ]; then
+    warn "Миграции с предупреждениями: ${FAILED_MIGS[*]} (проверь вручную если важно)"
+  fi
+else
+  warn "Папка migrations/ отсутствует в пакете — пропускаю"
+fi
 
 # ============================================================
 # 1. DEPLOY GO BACKEND

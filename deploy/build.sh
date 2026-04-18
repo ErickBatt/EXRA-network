@@ -102,6 +102,10 @@ mkdir -p "${BUILD_DIR}/landing/.next"
 cp -r "${REPO_ROOT}/landing/.next/static" "${BUILD_DIR}/landing/.next/static"
 [ -d "${REPO_ROOT}/landing/public" ] && cp -r "${REPO_ROOT}/landing/public" "${BUILD_DIR}/landing/public" || true
 
+# DB migrations — server-deploy.sh прогонит их идемпотентно через psql
+mkdir -p "${BUILD_DIR}/migrations"
+cp "${REPO_ROOT}/server/migrations/"*.sql "${BUILD_DIR}/migrations/"
+
 # .env.sample — шаблон для audit v2.4.1 required vars
 cp "${REPO_ROOT}/deploy/env.sample" "${BUILD_DIR}/env.sample" 2>/dev/null || true
 
