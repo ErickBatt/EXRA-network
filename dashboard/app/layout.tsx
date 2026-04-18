@@ -3,8 +3,8 @@ import "./globals.css";
 import { PeaqProvider } from "@/lib/peaq/PeaqProvider";
 
 export const metadata: Metadata = {
-  title: "Exra — Your device. Your network. Your income.",
-  description: "DePIN · TON · Fair Launch",
+  title: "EXRA — The decentralized network that runs on every device",
+  description: "DePIN · PEAQ · Fair Launch",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

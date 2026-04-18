@@ -6,18 +6,18 @@ const COLUMNS = [
   {
     title: "Network",
     links: [
-      { label: "Run a node", href: "https://app.exra.io/start" },
-      { label: "Buy bandwidth", href: "https://buy.exra.io" },
-      { label: "Status", href: "https://status.exra.io" },
+      { label: "Run a node", href: "https://app.exra.space/start" },
+      { label: "Buy bandwidth", href: "https://buy.exra.space" },
+      { label: "Status", href: "https://status.exra.space" },
       { label: "Explorer", href: "https://peaq.subscan.io" },
     ],
   },
   {
     title: "Build",
     links: [
-      { label: "Docs", href: "https://docs.exra.io" },
-      { label: "API", href: "https://docs.exra.io/api" },
-      { label: "Whitepaper", href: "https://exra.io/whitepaper.pdf" },
+      { label: "Docs", href: "https://docs.exra.space" },
+      { label: "API", href: "https://docs.exra.space/api" },
+      { label: "Whitepaper", href: "https://exra.space/whitepaper.pdf" },
       { label: "GitHub", href: "https://github.com/exra" },
     ],
   },
@@ -27,7 +27,7 @@ const COLUMNS = [
       { label: "Telegram", href: "https://t.me/exra" },
       { label: "Discord", href: "https://discord.gg/exra" },
       { label: "X / Twitter", href: "https://x.com/exranetwork" },
-      { label: "Blog", href: "https://exra.io/blog" },
+      { label: "Blog", href: "https://exra.space/blog" },
     ],
   },
   {
@@ -36,7 +36,7 @@ const COLUMNS = [
       { label: "About", href: "/about" },
       { label: "Careers", href: "/careers" },
       { label: "Brand kit", href: "/brand" },
-      { label: "Contact", href: "mailto:hi@exra.io" },
+      { label: "Contact", href: "mailto:hi@exra.space" },
     ],
   },
 ];

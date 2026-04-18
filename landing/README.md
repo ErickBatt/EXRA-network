@@ -123,7 +123,7 @@ npm run start
 
 ## What's intentionally NOT here
 
-- Auth / wallet connect — landing is brochureware, links to `app.exra.io`.
+- Auth / wallet connect — landing is brochureware, links to `app.exra.space`.
 - Forms — newsletter / contact use external services (`mailto:`, embeds).
 - Logo binary — inline SVG in `Navbar` and `Footer` for now. Drop a `public/logo.svg` to override.
 - Analytics — wire up Plausible / PostHog in `app/layout.tsx` `<Script>` tag.
@@ -131,11 +131,11 @@ npm run start
 
 ## Next moves
 
-1. **Real numbers** — replace hardcoded "48,217 nodes" with a fetch to `https://api.exra.io/network/stats` (ISR 60s).
+1. **Real numbers** — replace hardcoded "48,217 nodes" with a fetch to `https://api.exra.space/network/stats` (ISR 60s).
 2. **OG image** — generate dynamic `app/opengraph-image.tsx` using the hero map + brand gradient.
 3. **/whitepaper** — port the existing `EXRA Tokenomics Architecture v2.0_ PEAQ DePIN.md` into `app/whitepaper/page.tsx` with proper typography.
 4. **Testimonials / press** — once we have grant decisions or top-10 hub partners, drop a logo cloud above the final CTA.
 
 ---
 
-Built for `erickbattt@gmail.com` · April 2026 · Live at `exra.io`
+Built for `erickbattt@gmail.com` · April 2026 · Live at `exra.space`

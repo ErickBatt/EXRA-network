@@ -43,13 +43,13 @@ export function FinalCta() {
 
               <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Button variant="primary" size="lg" asChild>
-                  <Link href="https://app.exra.io/start">
+                  <Link href="https://app.exra.space/start">
                     Run a node
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
                 <Button variant="secondary" size="lg" asChild>
-                  <Link href="https://docs.exra.io">
+                  <Link href="https://docs.exra.space">
                     <BookOpen className="h-4 w-4" />
                     Read the whitepaper
                   </Link>

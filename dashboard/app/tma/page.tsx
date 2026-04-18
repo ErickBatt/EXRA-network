@@ -1,4 +1,12 @@
-// TMA route — delegates to TMAApp component which uses the secure server-side proxy.
-// NODE_SECRET never reaches the browser; all /api/tma/* calls go through /next-tma/* proxy.
-import TMAApp from './TMAApp'
-export default TMAApp
+"use client"
+
+// TMA route — @twa-dev/sdk touches `window.Telegram` at module top-level,
+// which crashes SSR. Load TMAApp client-only to skip the server render pass.
+// NODE_SECRET never reaches the browser; all /api/tma/* calls go through /next-tma/*.
+import dynamic from "next/dynamic"
+
+const TMAApp = dynamic(() => import("./TMAApp"), { ssr: false })
+
+export default function TmaPage() {
+  return <TMAApp />
+}

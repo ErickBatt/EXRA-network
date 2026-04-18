@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://exra.io"),
+  metadataBase: new URL("https://exra.space"),
   title: {
     default: "EXRA — The decentralized network that runs on every device",
     template: "%s · EXRA",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://exra.io",
+    url: "https://exra.space",
     title: "EXRA — The decentralized network that runs on every device",
     description:
       "Turn idle bandwidth into verifiable income. Built on peaq L1.",

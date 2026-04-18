@@ -93,7 +93,12 @@ MIG_DIR_DST="/root/exra/server/migrations"
 if [ -d "${SCRIPT_DIR}/migrations" ]; then
   mkdir -p "${MIG_DIR_DST}"
   cp "${SCRIPT_DIR}/migrations/"*.sql "${MIG_DIR_DST}/"
-  ok "Миграции скопированы → ${MIG_DIR_DST}"
+  # postgres user не может читать из /root/ (home 700) — используем /tmp/ как
+  # временный стейджинг для psql -f
+  MIG_STAGE=$(mktemp -d /tmp/exra-mig-XXXXXX)
+  cp "${MIG_DIR_DST}"/*.sql "${MIG_STAGE}/"
+  chmod -R o+r "${MIG_STAGE}"
+  ok "Миграции скопированы → ${MIG_DIR_DST} (stage: ${MIG_STAGE})"
 
   # Извлекаем DB имя из SUPABASE_URL в env (postgres://user:pass@host/DBNAME?...)
   DB_NAME=$(grep -E "^SUPABASE_URL=" "${ENV_FILE}" | head -1 | sed -E 's|.*/([^/?]+)(\?.*)?$|\1|')
@@ -101,7 +106,7 @@ if [ -d "${SCRIPT_DIR}/migrations" ]; then
   ok "Target DB: ${DB_NAME}"
 
   FAILED_MIGS=()
-  for f in $(ls "${MIG_DIR_DST}"/*.sql | sort); do
+  for f in $(ls "${MIG_STAGE}"/*.sql | sort); do
     name=$(basename "$f")
     # UTF-8 check — пропускаем файлы с невалидным encoding (типа 009_buyer_email.sql)
     if ! iconv -f utf-8 -t utf-8 "$f" >/dev/null 2>&1; then
@@ -111,7 +116,6 @@ if [ -d "${SCRIPT_DIR}/migrations" ]; then
     if sudo -u postgres psql "${DB_NAME}" -v ON_ERROR_STOP=0 -q -f "$f" >/tmp/mig.log 2>&1; then
       ok "  ${name}"
     else
-      # ON_ERROR_STOP=0 — продолжаем, но логируем критичные ошибки (не "already exists")
       if grep -qvE "already exists|does not exist, skipping|NOTICE" /tmp/mig.log; then
         tail -3 /tmp/mig.log | while IFS= read -r line; do
           warn "    ${line}"
@@ -121,6 +125,7 @@ if [ -d "${SCRIPT_DIR}/migrations" ]; then
     fi
   done
   rm -f /tmp/mig.log
+  rm -rf "${MIG_STAGE}"
 
   if [ ${#FAILED_MIGS[@]} -gt 0 ]; then
     warn "Миграции с предупреждениями: ${FAILED_MIGS[*]} (проверь вручную если важно)"
@@ -263,8 +268,8 @@ echo "   pm2 status                        — статус всех PM2 про�
 echo "   systemctl status ${SYSTEMD_SERVICE}   — статус API"
 echo ""
 echo " Nginx (если ещё не настроен):"
-echo "   exra.io           → proxy_pass http://localhost:3001   (landing)"
-echo "   app.exra.io       → proxy_pass http://localhost:3000   (dashboard)"
-echo "   dashboard.exra.io → proxy_pass http://localhost:3000   (dashboard)"
-echo "   api.exra.io       → proxy_pass http://localhost:8081   (control plane)"
+echo "   exra.space           → proxy_pass http://localhost:3001   (landing)"
+echo "   app.exra.space       → proxy_pass http://localhost:3000   (dashboard)"
+echo "   dashboard.exra.space → proxy_pass http://localhost:3000   (dashboard)"
+echo "   api.exra.space       → proxy_pass http://localhost:8081   (control plane)"
 echo "========================================="
