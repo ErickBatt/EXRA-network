@@ -2,142 +2,50 @@ package handlers
 
 // tma.go — Telegram Mini App backend endpoints.
 //
-// All endpoints use NODE_SECRET auth (same as node API) since the TMA runs
-// inside the node app and has access to the device_id + node secret.
+// Authentication model (v2.4.1 hardened):
+//   * POST /api/tma/auth         — public, requires valid initData (HMAC+auth_date TTL).
+//                                  Issues HttpOnly cookie session (TMA JWT, 24h).
+//   * POST /api/tma/link-device  — requires valid initData in body (telegram_id derived
+//                                  from signed params only, never from client body).
+//   * All other /api/tma/* routes require the TMAAuth cookie session + ownership check
+//     in tma_devices (telegram_id ↔ device_id, status='linked').
 //
-// Routes (registered in main.go under /api/tma/...):
-//   GET  /api/tma/me?device_id=xxx         — balance, pending EXRA, gear score, pool info
-//   GET  /api/tma/earnings?device_id=xxx   — earnings history (last N events)
-//   POST /api/tma/withdraw                 — submit withdrawal request
-//   GET  /api/tma/epoch                    — current epoch state with FOMO counter
-//   POST /api/tma/push-token               — register FCM push token
+// Replaces the prior model which trusted a shared NODE_SECRET + client-supplied
+// telegram_id, which allowed cross-account balance reads and withdrawals.
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"exra/db"
+	"exra/middleware"
 	"exra/models"
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
-	"os"
-	"sort"
-	"strconv"
-	"strings"
 	"time"
 )
 
-// initDataMaxAge bounds how old a signed Telegram initData may be before we
-// reject it. Telegram's own docs recommend rejecting anything older than a
-// day to limit the replay window if initData is ever leaked.
-const initDataMaxAge = 24 * time.Hour
-
-var (
-	errInitDataBotTokenMissing = errors.New("server missing TELEGRAM_BOT_TOKEN")
-	errInitDataInvalidSig      = errors.New("invalid telegram auth signature")
-	errInitDataExpired         = errors.New("telegram initData is expired — please reopen the mini app")
-	errInitDataMissingAuthDate = errors.New("telegram initData missing auth_date")
-	errInitDataMissingUser     = errors.New("telegram initData missing user field")
-)
-
-// verifyTelegramInitData verifies Telegram WebApp initData HMAC signature and
-// the auth_date freshness window. Returns the parsed params on success.
-func verifyTelegramInitData(initData string) (map[string]string, error) {
-	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-	if botToken == "" {
-		return nil, errInitDataBotTokenMissing
+func verifyInitDataOrReject(w http.ResponseWriter, initData string) *middleware.TMAInitDataParams {
+	if initData == "" {
+		jsonError(w, "init_data is required", http.StatusBadRequest)
+		return nil
 	}
-	params, err := url.ParseQuery(initData)
+	p, err := middleware.VerifyTelegramInitData(initData)
 	if err != nil {
-		return nil, err
-	}
-	hash := params.Get("hash")
-	if hash == "" {
-		return nil, errInitDataInvalidSig
-	}
-	params.Del("hash")
-
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+params.Get(k))
-	}
-	checkString := strings.Join(parts, "\n")
-
-	secretKeyHmac := hmac.New(sha256.New, []byte("WebAppData"))
-	secretKeyHmac.Write([]byte(botToken))
-	secretKey := secretKeyHmac.Sum(nil)
-
-	mac := hmac.New(sha256.New, secretKey)
-	mac.Write([]byte(checkString))
-	expected := mac.Sum(nil)
-
-	got, err := hex.DecodeString(hash)
-	if err != nil || !hmac.Equal(expected, got) {
-		return nil, errInitDataInvalidSig
-	}
-
-	// Freshness: auth_date is unix seconds. Reject stale tokens to shrink
-	// the replay window if initData leaks (e.g. via a debug log).
-	authDateStr := params.Get("auth_date")
-	if authDateStr == "" {
-		return nil, errInitDataMissingAuthDate
-	}
-	authDate, err := strconv.ParseInt(authDateStr, 10, 64)
-	if err != nil {
-		return nil, errInitDataMissingAuthDate
-	}
-	if time.Since(time.Unix(authDate, 0)) > initDataMaxAge {
-		return nil, errInitDataExpired
-	}
-
-	result := make(map[string]string)
-	for k, v := range params {
-		if len(v) > 0 {
-			result[k] = v[0]
+		switch {
+		case errors.Is(err, middleware.ErrTMAExpiredInitData):
+			jsonError(w, "telegram initData expired — reopen app", http.StatusUnauthorized)
+		case errors.Is(err, middleware.ErrTMAInvalidSignature):
+			jsonError(w, "invalid telegram signature", http.StatusUnauthorized)
+		default:
+			jsonError(w, "invalid telegram initData", http.StatusUnauthorized)
 		}
+		return nil
 	}
-	return result, nil
+	return p
 }
 
-// telegramUserFromInitData verifies initData and extracts the Telegram
-// identity fields from its signed user payload. Attackers cannot forge these
-// because they are covered by the HMAC.
-type telegramIdentity struct {
-	ID        int64
-	Username  string
-	FirstName string
-}
-
-func telegramUserFromInitData(initData string) (*telegramIdentity, error) {
-	params, err := verifyTelegramInitData(initData)
-	if err != nil {
-		return nil, err
-	}
-	userJSON := params["user"]
-	if userJSON == "" {
-		return nil, errInitDataMissingUser
-	}
-	var u struct {
-		ID        int64  `json:"id"`
-		FirstName string `json:"first_name"`
-		Username  string `json:"username"`
-	}
-	if err := json.Unmarshal([]byte(userJSON), &u); err != nil || u.ID == 0 {
-		return nil, errInitDataMissingUser
-	}
-	return &telegramIdentity{ID: u.ID, Username: u.Username, FirstName: u.FirstName}, nil
-}
-
-// POST /api/tma/auth — authenticate via Telegram initData, return account info
+// POST /api/tma/auth — verify initData, upsert tma_users, issue cookie, return account.
 func TmaAuth(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InitData string `json:"init_data"`
@@ -146,55 +54,46 @@ func TmaAuth(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.InitData == "" {
-		jsonError(w, "init_data is required", http.StatusBadRequest)
+	p := verifyInitDataOrReject(w, req.InitData)
+	if p == nil {
 		return
 	}
-	ident, err := telegramUserFromInitData(req.InitData)
-	if err != nil {
-		status := http.StatusUnauthorized
-		if errors.Is(err, errInitDataExpired) {
-			status = http.StatusUnauthorized
-		} else if errors.Is(err, errInitDataBotTokenMissing) {
-			log.Printf("tma-auth: %v", err)
-			jsonError(w, "auth not configured", http.StatusInternalServerError)
-			return
-		}
-		jsonError(w, err.Error(), status)
-		return
-	}
-	telegramID := ident.ID
-	firstName := ident.FirstName
-	username := ident.Username
 
-	// Upsert tma_user
-	_, err = db.DB.Exec(`
+	if _, err := db.DB.Exec(`
 		INSERT INTO tma_users (telegram_id, telegram_username, telegram_first_name, last_seen_at)
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (telegram_id) DO UPDATE
 		SET telegram_username = EXCLUDED.telegram_username,
 		    telegram_first_name = EXCLUDED.telegram_first_name,
 		    last_seen_at = NOW()`,
-		telegramID, username, firstName,
-	)
-	if err != nil {
-		log.Printf("tma-auth: upsert tma_user err: %v", err)
+		p.TelegramID, p.Username, p.FirstName,
+	); err != nil {
+		log.Printf("tma-auth: upsert err: %v", err)
 		jsonError(w, "db error", http.StatusInternalServerError)
 		return
 	}
 
-	// Get linked devices with their balances (Optimized for 50k nodes)
-	// We use the new idx_node_earnings_aggregation to speed up the SUM calculation
+	if err := middleware.IssueTMASession(w, p); err != nil {
+		log.Printf("tma-auth: issue session err: %v", err)
+		jsonError(w, "session error", http.StatusInternalServerError)
+		return
+	}
+
+	writeAccountSummary(w, p.TelegramID, p.FirstName, p.Username)
+}
+
+// writeAccountSummary loads linked devices + totals and writes the JSON response.
+func writeAccountSummary(w http.ResponseWriter, telegramID int64, firstName, username string) {
 	rows, err := db.DB.Query(`
 		SELECT td.device_id,
 		       COALESCE((
-		           SELECT SUM(earned_usd) 
-		           FROM node_earnings e 
+		           SELECT SUM(earned_usd)
+		           FROM node_earnings e
 		           WHERE e.device_id = td.device_id AND e.batch_id IS NULL
 		       ), 0) as pending_usd,
 		       COALESCE((
-		           SELECT SUM(total_credits) 
-		           FROM oracle_batches 
+		           SELECT SUM(total_credits)
+		           FROM oracle_batches
 		           WHERE oracle_id = td.device_id AND status = 'applied'
 		       ), 0) as batched_usd,
 		       COALESCE(n.device_type, ''),
@@ -225,14 +124,15 @@ func TmaAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var devices []DeviceSummary
-	var totalUSD float64
+	var totalPending, totalBatched float64
 	for rows.Next() {
 		var d DeviceSummary
 		if err := rows.Scan(&d.DeviceID, &d.PendingUSD, &d.BatchedUSD, &d.DeviceType, &d.Country, &d.Status, &d.IdentityTier, &d.RSMult); err != nil {
 			log.Printf("tma-auth: scan device err: %v", err)
 			continue
 		}
-		totalUSD += (d.PendingUSD + d.BatchedUSD)
+		totalPending += d.PendingUSD
+		totalBatched += d.BatchedUSD
 		devices = append(devices, d)
 	}
 	if devices == nil {
@@ -245,20 +145,28 @@ func TmaAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, map[string]any{
-		"telegram_id":      telegramID,
-		"first_name":       firstName,
-		"username":         username,
-		"devices":          devices,
-		"total_earned_usd": totalUSD,
-		"global_pause":     isPaused,
+		"telegram_id":        telegramID,
+		"first_name":         firstName,
+		"username":           username,
+		"devices":            devices,
+		"pending_usd":        totalPending,      // informational: not yet withdrawable
+		"withdrawable_usd":   totalBatched,      // applied batches only
+		"total_earned_usd":   totalPending + totalBatched,
+		"global_pause":       isPaused,
 	}, http.StatusOK)
 }
 
-// POST /api/tma/link-device — link a device_id to the *authenticated* Telegram
-// account. The caller must supply a valid signed initData so the server can
-// derive the Telegram identity server-side; accepting a raw telegram_id from
-// the client would let anyone impersonate another Telegram user and harass a
-// legitimate node owner with spoofed approval prompts.
+// GET /api/tma/me — returns account summary for the currently authenticated session.
+// Cookie-session protected.
+func TmaMeSession(w http.ResponseWriter, r *http.Request) {
+	tgID := middleware.TelegramIDFromContext(r)
+	firstName := middleware.TelegramFirstNameFromContext(r)
+	username := middleware.TelegramUsernameFromContext(r)
+	writeAccountSummary(w, tgID, firstName, username)
+}
+
+// POST /api/tma/link-device — initiate device link. Requires signed initData.
+// `telegram_id`, `tg_user`, `tg_first_name` are derived from initData only.
 func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InitData string `json:"init_data"`
@@ -268,26 +176,28 @@ func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.InitData == "" || req.DeviceID == "" {
-		jsonError(w, "init_data and device_id are required", http.StatusBadRequest)
+	p := verifyInitDataOrReject(w, req.InitData)
+	if p == nil {
+		return
+	}
+	if req.DeviceID == "" {
+		jsonError(w, "device_id is required", http.StatusBadRequest)
 		return
 	}
 	if err := validateDeviceID(req.DeviceID); err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	ident, err := telegramUserFromInitData(req.InitData)
-	if err != nil {
-		if errors.Is(err, errInitDataBotTokenMissing) {
-			log.Printf("tma-link-device: %v", err)
-			jsonError(w, "auth not configured", http.StatusInternalServerError)
-			return
-		}
-		jsonError(w, err.Error(), http.StatusUnauthorized)
+
+	// Sybil limit: max 5 linked devices per Telegram account.
+	var linkedCount int
+	if err := db.DB.QueryRow(
+		`SELECT COUNT(*) FROM tma_devices WHERE telegram_id=$1 AND status='linked'`, p.TelegramID,
+	).Scan(&linkedCount); err == nil && linkedCount >= 5 {
+		jsonError(w, "max 5 devices per Telegram account", http.StatusForbidden)
 		return
 	}
 
-	// Verify device exists
 	var exists bool
 	_ = db.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM nodes WHERE device_id = $1)`, req.DeviceID).Scan(&exists)
 	if !exists {
@@ -295,54 +205,65 @@ func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if already linked
 	var currentStatus string
-	_ = db.DB.QueryRow(`SELECT status FROM tma_devices WHERE telegram_id = $1 AND device_id = $2`, ident.ID, req.DeviceID).Scan(&currentStatus)
+	_ = db.DB.QueryRow(`SELECT status FROM tma_devices WHERE telegram_id=$1 AND device_id=$2`,
+		p.TelegramID, req.DeviceID).Scan(&currentStatus)
 	if currentStatus == "linked" {
 		jsonResponse(w, map[string]string{"status": "linked", "message": "device already linked"}, http.StatusOK)
 		return
 	}
 
 	requestID := models.UUID()
-
-	if _, err := db.DB.Exec(`
+	_, err := db.DB.Exec(`
 		INSERT INTO tma_devices (telegram_id, device_id, status, request_id)
 		VALUES ($1, $2, 'pending', $3)
 		ON CONFLICT (telegram_id, device_id) DO UPDATE
 		SET status = 'pending', request_id = EXCLUDED.request_id`,
-		ident.ID, req.DeviceID, requestID,
-	); err != nil {
+		p.TelegramID, req.DeviceID, requestID,
+	)
+	if err != nil {
 		jsonError(w, "failed to initiate link: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Notify the node so it can show an approval prompt. Fields come from the
-	// signed identity so a caller cannot spoof a different display name.
 	if runtimeHub != nil {
-		runtimeHub.BroadcastLinkRequest(req.DeviceID, ident.Username, ident.FirstName, requestID)
+		runtimeHub.BroadcastLinkRequest(req.DeviceID, p.Username, p.FirstName, requestID)
 	}
 
-	jsonResponse(w, map[string]any{
-		"status":      "pending",
-		"request_id":  requestID,
-		"telegram_id": ident.ID,
-		"message":     "Please approve the request on your mobile device",
+	jsonResponse(w, map[string]string{
+		"status":     "pending",
+		"request_id": requestID,
+		"message":    "Please approve the request on your mobile device",
 	}, http.StatusAccepted)
 }
 
-// GET /api/tma/me?device_id=xxx
-func TmaMe(w http.ResponseWriter, r *http.Request) {
-	deviceID := r.URL.Query().Get("device_id")
-	if deviceID == "" {
-		jsonError(w, "device_id is required", http.StatusBadRequest)
-		return
-	}
+// requireDeviceOwnership fetches device_id from query/body and ensures the caller owns it.
+// Returns the verified device_id or empty string if response has already been written.
+func requireDeviceOwnership(w http.ResponseWriter, r *http.Request, deviceID string) string {
 	if err := validateDeviceID(deviceID); err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
+		return ""
+	}
+	tgID := middleware.TelegramIDFromContext(r)
+	owned, err := middleware.AssertDeviceOwnedByTelegram(tgID, deviceID)
+	if err != nil {
+		jsonError(w, "ownership check failed", http.StatusInternalServerError)
+		return ""
+	}
+	if !owned {
+		jsonError(w, "device not linked to this Telegram account", http.StatusForbidden)
+		return ""
+	}
+	return deviceID
+}
+
+// GET /api/tma/device?device_id=xxx — per-device detail (cookie-session + ownership).
+func TmaMe(w http.ResponseWriter, r *http.Request) {
+	deviceID := requireDeviceOwnership(w, r, r.URL.Query().Get("device_id"))
+	if deviceID == "" {
 		return
 	}
 
-	// Pending credits (unbatched)
 	var pendingUSD float64
 	_ = db.DB.QueryRow(`
 		SELECT COALESCE(SUM(earned_usd), 0)
@@ -351,7 +272,6 @@ func TmaMe(w http.ResponseWriter, r *http.Request) {
 		deviceID,
 	).Scan(&pendingUSD)
 
-	// Batched credits (consensus reached)
 	var batchedCredits float64
 	_ = db.DB.QueryRow(`
 		SELECT COALESCE(SUM(total_credits), 0)
@@ -360,7 +280,6 @@ func TmaMe(w http.ResponseWriter, r *http.Request) {
 		deviceID,
 	).Scan(&batchedCredits)
 
-	// Gear score from node hardware
 	var cpuCores, vramMB, ramMB, bandwidthMbps int
 	var deviceType string
 	var isResidential bool
@@ -371,7 +290,6 @@ func TmaMe(w http.ResponseWriter, r *http.Request) {
 	).Scan(&cpuCores, &vramMB, &ramMB, &bandwidthMbps, &deviceType, &isResidential)
 	gs := models.ComputeGearScore(deviceType, cpuCores, vramMB, ramMB, bandwidthMbps, isResidential)
 
-	// Pool membership
 	pool, _ := models.GetPoolByDevice(nil, deviceID)
 	poolInfo := map[string]any{"pool": nil, "tier": "solo", "treasury_fee_pct": 30}
 	if pool != nil {
@@ -382,7 +300,6 @@ func TmaMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Identity Tier info
 	var identityTier, did string
 	var rsMult float64
 	_ = db.DB.QueryRow(`SELECT identity_tier, rs_mult, did FROM nodes WHERE device_id = $1`, deviceID).Scan(&identityTier, &rsMult, &did)
@@ -392,26 +309,37 @@ func TmaMe(w http.ResponseWriter, r *http.Request) {
 		taxRate = 0
 	}
 
+	// Next-eligible payout from timelock.
+	var nextEligibleAt *time.Time
+	var et time.Time
+	if err := db.DB.QueryRow(`
+		SELECT MIN(eligible_at)
+		FROM did_payout_velocity
+		WHERE did = $1 AND eligible_at > NOW()`, did).Scan(&et); err == nil && !et.IsZero() {
+		nextEligibleAt = &et
+	}
+
 	isPaused := false
 	if runtimeHub != nil {
 		isPaused = runtimeHub.IsGlobalPause()
 	}
 
 	jsonResponse(w, map[string]any{
-		"device_id":       deviceID,
-		"did":             did,
-		"pending_usd":     pendingUSD,
-		"batched_credits": batchedCredits,
-		"identity_tier":   identityTier,
-		"rs_multiplier":   rsMult,
-		"gear_score":      gs,
-		"pool":            poolInfo,
-		"tax_rate_pct":    taxRate,
-		"global_pause":    isPaused,
+		"device_id":        deviceID,
+		"did":              did,
+		"pending_usd":      pendingUSD,
+		"batched_credits":  batchedCredits,
+		"identity_tier":    identityTier,
+		"rs_multiplier":    rsMult,
+		"gear_score":       gs,
+		"pool":             poolInfo,
+		"tax_rate_pct":     taxRate,
+		"next_eligible_at": nextEligibleAt,
+		"global_pause":     isPaused,
 	}, http.StatusOK)
 }
 
-// POST /api/tma/stake — upgrade to Peak tier using 100 EXRA from batched_credits
+// POST /api/tma/stake — upgrade to Peak tier. Cookie-session + ownership required.
 func TmaStake(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DeviceID string `json:"device_id"`
@@ -420,8 +348,11 @@ func TmaStake(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	deviceID := requireDeviceOwnership(w, r, req.DeviceID)
+	if deviceID == "" {
+		return
+	}
 
-	// 1. Get DID and current balance
 	var did, tier string
 	var batchedCredits float64
 	err := db.DB.QueryRow(`
@@ -429,40 +360,34 @@ func TmaStake(w http.ResponseWriter, r *http.Request) {
 		FROM nodes n
 		LEFT JOIN oracle_batches b ON b.oracle_id = n.device_id AND b.status = 'applied'
 		WHERE n.device_id = $1
-		GROUP BY n.did, n.identity_tier`, req.DeviceID).Scan(&did, &tier, &batchedCredits)
+		GROUP BY n.did, n.identity_tier`, deviceID).Scan(&did, &tier, &batchedCredits)
 
 	if err != nil || did == "" {
 		jsonError(w, "node not found or missing DID", http.StatusNotFound)
 		return
 	}
-
 	if tier == "peak" {
 		jsonError(w, "already at Peak tier", http.StatusBadRequest)
 		return
 	}
-
 	if batchedCredits < 100 {
 		jsonError(w, fmt.Sprintf("insufficient credits: 100 EXRA required, you have %.2f", batchedCredits), http.StatusPaymentRequired)
 		return
 	}
-
-	// 2. Perform upgrade via models
 	if err := models.UpgradeNodeToPeak(did, 100); err != nil {
 		jsonError(w, "staking failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	jsonResponse(w, map[string]string{
 		"status":  "success",
 		"message": "Node upgraded to Peak tier! 100 EXRA staked.",
 	}, http.StatusOK)
 }
 
-// GET /api/tma/earnings?device_id=xxx&limit=50
+// GET /api/tma/earnings?device_id=xxx — cookie-session + ownership required.
 func TmaEarnings(w http.ResponseWriter, r *http.Request) {
-	deviceID := r.URL.Query().Get("device_id")
+	deviceID := requireDeviceOwnership(w, r, r.URL.Query().Get("device_id"))
 	if deviceID == "" {
-		jsonError(w, "device_id is required", http.StatusBadRequest)
 		return
 	}
 	limit := 50
@@ -509,36 +434,33 @@ func TmaEarnings(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]any{"device_id": deviceID, "events": out}, http.StatusOK)
 }
 
-// POST /api/tma/withdraw
+// POST /api/tma/withdraw — cookie-session + ownership required.
 func TmaWithdraw(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DeviceID        string  `json:"device_id"`
 		AmountUSD       float64 `json:"amount_usd"`
 		RecipientWallet string  `json:"recipient_wallet"`
-		Currency        string  `json:"currency"` 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.DeviceID == "" || req.AmountUSD <= 0 || req.RecipientWallet == "" {
-		jsonError(w, "device_id, amount_usd, and recipient_wallet are required", http.StatusBadRequest)
+	if req.AmountUSD <= 0 || req.RecipientWallet == "" {
+		jsonError(w, "amount_usd and recipient_wallet are required", http.StatusBadRequest)
 		return
 	}
-	if err := validateDeviceID(req.DeviceID); err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
+	deviceID := requireDeviceOwnership(w, r, req.DeviceID)
+	if deviceID == "" {
 		return
 	}
 
-	// 1. Fetch DID for this device (Withdrawals require on-chain identity in v2.0)
 	var did string
-	err := db.DB.QueryRow(`SELECT did FROM nodes WHERE device_id = $1`, req.DeviceID).Scan(&did)
+	err := db.DB.QueryRow(`SELECT did FROM nodes WHERE device_id = $1`, deviceID).Scan(&did)
 	if err != nil || did == "" {
 		jsonError(w, "withdrawal failed: device has no associated PEAQ DID", http.StatusForbidden)
 		return
 	}
 
-	// 2. Perform Claim via PEAQ v2.0 Logic (Tax, Timelock, Velocity)
 	payout, err := models.ClaimPayout(did, req.AmountUSD, req.RecipientWallet)
 	if err != nil {
 		log.Printf("tma-withdraw: ClaimPayout err: %v", err)
@@ -546,13 +468,12 @@ func TmaWithdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Get Velocity info for the response (timelock count down)
 	var taxAmount float64
 	var eligibleAt time.Time
 	var tier string
 	_ = db.DB.QueryRow(`
-		SELECT tax_amount, eligible_at, tier_at_payout 
-		FROM did_payout_velocity 
+		SELECT tax_amount, eligible_at, tier_at_payout
+		FROM did_payout_velocity
 		WHERE payout_id = $1`, payout.ID).Scan(&taxAmount, &eligibleAt, &tier)
 
 	jsonResponse(w, map[string]any{
@@ -567,6 +488,7 @@ func TmaWithdraw(w http.ResponseWriter, r *http.Request) {
 	}, http.StatusCreated)
 }
 
+// GET /api/tma/epoch — public.
 func TmaEpoch(w http.ResponseWriter, r *http.Request) {
 	stats, err := models.GetTokenomicsStats()
 	if err != nil {
@@ -578,19 +500,23 @@ func TmaEpoch(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, epoch, http.StatusOK)
 }
 
-// POST /api/tma/push-token — register FCM token for push notifications
+// POST /api/tma/push-token — cookie-session + ownership required.
 func TmaRegisterPushToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DeviceID string `json:"device_id"`
 		FCMToken string `json:"fcm_token"`
-		Platform string `json:"platform"` // "android" | "ios"
+		Platform string `json:"platform"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.DeviceID == "" || req.FCMToken == "" {
-		jsonError(w, "device_id and fcm_token are required", http.StatusBadRequest)
+	if req.FCMToken == "" {
+		jsonError(w, "fcm_token is required", http.StatusBadRequest)
+		return
+	}
+	deviceID := requireDeviceOwnership(w, r, req.DeviceID)
+	if deviceID == "" {
 		return
 	}
 	if req.Platform == "" {
@@ -600,9 +526,15 @@ func TmaRegisterPushToken(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "platform must be android or ios", http.StatusBadRequest)
 		return
 	}
-	if err := models.UpsertPushToken(req.DeviceID, req.FCMToken, req.Platform); err != nil {
+	if err := models.UpsertPushToken(deviceID, req.FCMToken, req.Platform); err != nil {
 		jsonError(w, "failed to register push token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	jsonResponse(w, map[string]string{"status": "registered"}, http.StatusOK)
+}
+
+// POST /api/tma/logout — clear cookie.
+func TmaLogout(w http.ResponseWriter, r *http.Request) {
+	middleware.ClearTMASession(w)
+	jsonResponse(w, map[string]string{"status": "logged_out"}, http.StatusOK)
 }

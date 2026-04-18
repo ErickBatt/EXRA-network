@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"exra/db"
+	"exra/middleware"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,6 +28,12 @@ func TestTmaWithdraw_AnonTaxAndTimelock(t *testing.T) {
 	deviceID := "dev-123"
 	did := "did:peaq:anon"
 	amount := 10.0
+	const tgID int64 = 42
+
+	// 0. Ownership check runs first: SELECT EXISTS(SELECT 1 FROM tma_devices...)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM tma_devices`).
+		WithArgs(tgID, deviceID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// 1. Mock DID lookup
 	mock.ExpectQuery(`SELECT did FROM nodes`).
@@ -86,6 +94,8 @@ func TestTmaWithdraw_AnonTaxAndTimelock(t *testing.T) {
 	b, _ := json.Marshal(reqBody)
 
 	req, _ := http.NewRequest("POST", "/api/tma/withdraw", bytes.NewBuffer(b))
+	// Inject authenticated TMA session context (middleware is normally responsible).
+	req = req.WithContext(context.WithValue(req.Context(), middleware.TMATelegramIDKey, tgID))
 	rr := httptest.NewRecorder()
 
 	TmaWithdraw(rr, req)

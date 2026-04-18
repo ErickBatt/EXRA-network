@@ -90,3 +90,41 @@ func RateLimit(next http.Handler) http.Handler {
 	})
 }
 
+// ScopedLimiters holds a named, stricter limiter set (per-IP) for sensitive endpoints.
+var (
+	scopedLimiters = struct {
+		sync.Mutex
+		m map[string]map[string]*visitor
+	}{m: map[string]map[string]*visitor{}}
+)
+
+// ScopedRateLimit returns an http.HandlerFunc wrapper enforcing `rps` tokens/sec
+// with `burst` burst, keyed per-IP under a named scope (e.g. "tma-auth").
+// Separate scopes keep expensive endpoints from starving cheap ones.
+func ScopedRateLimit(scope string, rps rate.Limit, burst int) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			scopedLimiters.Lock()
+			bucket, ok := scopedLimiters.m[scope]
+			if !ok {
+				bucket = map[string]*visitor{}
+				scopedLimiters.m[scope] = bucket
+			}
+			v, exists := bucket[ip]
+			if !exists {
+				v = &visitor{limiter: rate.NewLimiter(rps, burst), lastSeen: time.Now()}
+				bucket[ip] = v
+			}
+			v.lastSeen = time.Now()
+			lim := v.limiter
+			scopedLimiters.Unlock()
+			if !lim.Allow() {
+				jsonError(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
+			next(w, r)
+		}
+	}
+}
+

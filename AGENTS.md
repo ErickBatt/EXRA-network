@@ -360,3 +360,28 @@ go test -timeout 60s ./middleware/... ./models/... ./hub/... ./tests/...
 - Явные пины `dev.sublab:common-kotlin:1.0.0` и `dev.sublab:sr25519-kotlin:1.0.1` — версии `1.1.x` в Maven Central не существуют.
 
 **Импорты в Kotlin-коде ноды:** использовать `dev.sublab.encrypting.keys.KeyPair`, НЕ `io.novasama.substrate_sdk_android.*` (последние остались от старого Nova SDK).
+
+---
+
+## 15. TMA Security — остаточные P1 (после hardening-PR 2026-04-18)
+
+После закрытия P0 (cookie-session, initData TTL, ownership-checks, Sybil-лимит, rate-limit, удаление `X-Node-Secret` из прокси) остались **P1-риски**, которые нужно закрыть отдельными PR перед масштабированием аудитории TMA:
+
+1. **`TMA_SESSION_SECRET` fallback** — [server/middleware/tma_auth.go:57-65](server/middleware/tma_auth.go) возвращает hardcoded dev-секрет при отсутствии env. **Fix:** `log.Fatal` если `GO_ENV=production` и `TMA_SESSION_SECRET` пуст. Деплой без него = все JWT подделываются.
+
+2. **SameSite=Strict ломает Telegram iOS WebView** — текущая `Strict` cookie может не передаваться в in-app браузере Telegram iOS. **Fix:** перевести на `SameSite=Lax` + явная проверка `Origin`/`Referer` на мутирующих эндпоинтах (`/withdraw`, `/stake`, `/link-device`).
+
+3. **Нет revocation JWT** — утечка cookie = 24h окно без возможности отозвать. **Fix:** добавить `jti` claim + Redis-blacklist, либо таблицу `tma_sessions(sid, revoked_at)` с проверкой в `TMAAuth` middleware.
+
+4. **Ownership + DID lookup — два запроса вместо JOIN** — [tma.go](server/handlers/tma.go) делает `AssertDeviceOwnedByTelegram` + `SELECT did FROM nodes` последовательно. **Fix:** один запрос `JOIN tma_devices td ON td.device_id=n.device_id WHERE td.telegram_id=$1 AND td.status='linked'`.
+
+5. **Approval-spam per-device** — текущий `ScopedRateLimit("tma-link", 0.05, 3)` per-IP легко обходится пулом IP для атаки на конкретный `device_id`. **Fix:** лимит «не более N pending approvals в час на device_id», независимо от источника.
+
+6. **Fingerprint binding (Android ID + hw hash) — не реализован** — approval-flow НЕ сверяет `hw_hash` устройства с сохранённым в `nodes.hw_fingerprint`. Требование AGENTS.md §Security не выполнено. **Fix:** при WS-approval Android-клиент шлёт свежий fingerprint → сервер сверяет → mismatch = reject.
+
+7. **`/auth` ответ содержит `telegram_id` в body** — после перехода на cookie это избыточная инфо-утечка. **Fix:** убрать поле из `writeAccountSummary`, клиент всё равно работает по сессии.
+
+8. **`TmaStake` — нет гарантии уникальности DID** — если два `device_id` с одним DID окажутся привязаны к одному tg_id, возможен gamed-stake. **Fix:** `UNIQUE(did)` либо explicit check перед `UpgradeNodeToPeak`.
+
+**Env для прода (обязательно):** `TELEGRAM_BOT_TOKEN`, `TMA_SESSION_SECRET` (min 32 bytes random), `TMA_API_BASE`. При отсутствии любого — отказываться стартовать.
+

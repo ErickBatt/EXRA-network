@@ -148,8 +148,8 @@ func main() {
 	r.HandleFunc("/api/compute/jobs/{id}", middleware.BuyerAuth(handlers.GetTaskStatus)).Methods("GET")
 	r.HandleFunc("/api/compute/node/result", nodeAuth(handlers.SubmitComputeResult)).Methods("POST")
 	
-	// TMA Extra
-	r.HandleFunc("/api/tma/stake", nodeAuth(handlers.TmaStake)).Methods("POST")
+	// TMA Extra — cookie-session protected
+	r.HandleFunc("/api/tma/stake", middleware.TMAAuth(handlers.TmaStake)).Methods("POST")
 
 	// Pool system (Phase 3) — node auth required for mutations
 	r.HandleFunc("/api/pools", handlers.ListPools).Methods("GET")                       // public
@@ -159,14 +159,18 @@ func main() {
 	r.HandleFunc("/api/pools/leave", nodeAuth(handlers.LeavePool)).Methods("POST")
 	r.HandleFunc("/api/pools/me", nodeAuth(handlers.GetMyPool)).Methods("GET")
 
-	// Telegram Mini App API
-	r.HandleFunc("/api/tma/auth", handlers.TmaAuth).Methods("POST")                                    // public — Telegram initData auth
-	r.HandleFunc("/api/tma/link-device", handlers.TmaLinkDevice).Methods("POST")                       // public — link device to TG account
-	r.HandleFunc("/api/tma/me", nodeAuth(handlers.TmaMe)).Methods("GET")                               // node auth
-	r.HandleFunc("/api/tma/earnings", nodeAuth(handlers.TmaEarnings)).Methods("GET")                   // node auth
-	r.HandleFunc("/api/tma/withdraw", nodeAuth(handlers.TmaWithdraw)).Methods("POST")                  // node auth
-	r.HandleFunc("/api/tma/epoch", handlers.TmaEpoch).Methods("GET")                                   // public
-	r.HandleFunc("/api/tma/push-token", nodeAuth(handlers.TmaRegisterPushToken)).Methods("POST")       // node auth
+	// Telegram Mini App API — cookie-session model (TMAAuth)
+	tmaAuthLimit := middleware.ScopedRateLimit("tma-auth", 0.5, 5)   // ~30/min per IP
+	tmaLinkLimit := middleware.ScopedRateLimit("tma-link", 0.05, 3)  // ~3/min per IP, anti-approval-spam
+	r.HandleFunc("/api/tma/auth", tmaAuthLimit(handlers.TmaAuth)).Methods("POST")                            // public — verify initData, issue cookie
+	r.HandleFunc("/api/tma/logout", handlers.TmaLogout).Methods("POST")                                      // public — clear cookie
+	r.HandleFunc("/api/tma/link-device", tmaLinkLimit(handlers.TmaLinkDevice)).Methods("POST")               // public — signed initData in body
+	r.HandleFunc("/api/tma/session", middleware.TMAAuth(handlers.TmaMeSession)).Methods("GET")               // cookie session — account summary
+	r.HandleFunc("/api/tma/device", middleware.TMAAuth(handlers.TmaMe)).Methods("GET")                       // cookie + device ownership
+	r.HandleFunc("/api/tma/earnings", middleware.TMAAuth(handlers.TmaEarnings)).Methods("GET")               // cookie + device ownership
+	r.HandleFunc("/api/tma/withdraw", middleware.TMAAuth(handlers.TmaWithdraw)).Methods("POST")              // cookie + device ownership
+	r.HandleFunc("/api/tma/epoch", handlers.TmaEpoch).Methods("GET")                                         // public
+	r.HandleFunc("/api/tma/push-token", middleware.TMAAuth(handlers.TmaRegisterPushToken)).Methods("POST")   // cookie + device ownership
 
 	// HTTP CONNECT proxy endpoint
 	r.HandleFunc("/proxy", middleware.BuyerAuth(handlers.HTTPConnectProxy)).Methods("POST", "CONNECT", "GET")
