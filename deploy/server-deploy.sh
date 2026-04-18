@@ -4,12 +4,12 @@
 # Запускать на сервере от root:  sudo bash server-deploy.sh
 #
 # Ожидаемая структура рядом со скриптом:
-#   ./exra-server-linux    — Go binary
-#   ./dashboard/           — Next.js standalone build
-#       server.js
-#       node_modules/
-#       .next/static/
-#       public/
+#   ./exra-server-linux    — Go binary (control plane + gateway)
+#   ./dashboard/           — Next.js standalone build (port 3000)
+#       server.js, node_modules/, .next/static/, public/
+#   ./landing/             — Next.js standalone build (port 3001)
+#       server.js, node_modules/, .next/static/, public/
+#   ./env.sample           — шаблон /etc/exra.env (audit v2.4.1 vars)
 # =============================================================================
 set -e
 
@@ -18,8 +18,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ---- пути на сервере (менять только если переезд) ----
 BINARY_DST="/usr/local/bin/exra-server"
 DASHBOARD_DST="/var/www/dashboard"
+LANDING_DST="/var/www/landing"
 SYSTEMD_SERVICE="exra.service"
-PM2_NAME="exra-dashboard"
+PM2_DASHBOARD="exra-dashboard"
+PM2_LANDING="exra-landing"
+ENV_FILE="/etc/exra.env"
 
 # ---- цвета ----
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -35,13 +38,45 @@ step() { echo -e "\n${YELLOW}=== $* ===${NC}"; }
 step "Проверка пакета"
 [ -f "${SCRIPT_DIR}/exra-server-linux" ] || fail "exra-server-linux не найден в ${SCRIPT_DIR}"
 [ -f "${SCRIPT_DIR}/dashboard/server.js" ] || fail "dashboard/server.js не найден — неполный архив"
+[ -f "${SCRIPT_DIR}/landing/server.js" ] || fail "landing/server.js не найден — неполный архив"
 ok "Go binary: $(du -sh "${SCRIPT_DIR}/exra-server-linux" | cut -f1)"
-ok "Dashboard: OK"
+ok "Dashboard:  $(du -sh "${SCRIPT_DIR}/dashboard" | cut -f1)"
+ok "Landing:    $(du -sh "${SCRIPT_DIR}/landing" | cut -f1)"
+
+# ---- проверка audit v2.4.1 env vars ----
+step "Проверка /etc/exra.env (audit v2.4.1 required vars)"
+if [ ! -f "${ENV_FILE}" ]; then
+  warn "${ENV_FILE} не существует — копирую шаблон"
+  if [ -f "${SCRIPT_DIR}/env.sample" ]; then
+    cp "${SCRIPT_DIR}/env.sample" "${ENV_FILE}"
+    chmod 600 "${ENV_FILE}"
+    warn "ЗАПОЛНИ реальные значения в ${ENV_FILE} и запусти ещё раз!"
+    warn "Особенно: WS_ALLOWED_ORIGINS, GATEWAY_JWT_PUBLIC_KEY,"
+    warn "          GATEWAY_JWT_PRIVATE_KEY, PEAQ_ORACLE_SEED"
+    exit 1
+  else
+    fail "env.sample отсутствует в пакете"
+  fi
+fi
+
+# Проверяем что ключевые vars не содержат REPLACE_* плейсхолдеры
+MISSING_VARS=()
+for var in WS_ALLOWED_ORIGINS GATEWAY_JWT_PUBLIC_KEY GATEWAY_JWT_PRIVATE_KEY PEAQ_ORACLE_SEED; do
+  val=$(grep -E "^${var}=" "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '"' || true)
+  if [ -z "${val}" ] || [[ "${val}" == REPLACE_* ]]; then
+    MISSING_VARS+=("${var}")
+  fi
+done
+
+if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+  fail "В ${ENV_FILE} не заполнены audit v2.4.1 переменные: ${MISSING_VARS[*]}. Сервер не стартанёт в secure-режиме. Заполни и запусти ещё раз."
+fi
+ok "/etc/exra.env — audit v2.4.1 переменные выставлены"
 
 # ============================================================
 # 1. DEPLOY GO BACKEND
 # ============================================================
-step "1/3 Обновление Go backend"
+step "1/4 Обновление Go backend"
 
 systemctl stop "${SYSTEMD_SERVICE}" 2>/dev/null && ok "Сервис остановлен" || warn "Сервис уже был остановлен"
 sleep 1
@@ -60,67 +95,104 @@ else
 fi
 
 # ============================================================
-# 2. DEPLOY NEXT.JS DASHBOARD (STANDALONE)
+# 2. DEPLOY NEXT.JS DASHBOARD (STANDALONE, port 3000)
 # ============================================================
-step "2/3 Обновление Next.js dashboard"
+step "2/4 Обновление Next.js dashboard"
 
 # Сохраняем .env.local — НЕ перезаписываем (там секреты)
 ENV_BACKUP=""
 if [ -f "${DASHBOARD_DST}/.env.local" ]; then
   ENV_BACKUP=$(mktemp)
   cp "${DASHBOARD_DST}/.env.local" "${ENV_BACKUP}"
-  ok ".env.local сохранён"
+  ok "dashboard .env.local сохранён"
 fi
 
-# Останавливаем PM2
-pm2 stop "${PM2_NAME}" 2>/dev/null && ok "PM2 остановлен" || warn "PM2 процесс не был запущен"
+pm2 stop "${PM2_DASHBOARD}" 2>/dev/null && ok "PM2 dashboard остановлен" || warn "PM2 dashboard не был запущен"
 
-# Копируем standalone build
 mkdir -p "${DASHBOARD_DST}"
-# rsync сохраняет .env.local если он уже там — но мы уже сохранили, копируем всё
 cp -r "${SCRIPT_DIR}/dashboard/." "${DASHBOARD_DST}/"
 ok "Dashboard файлы скопированы → ${DASHBOARD_DST}"
 
-# Восстанавливаем .env.local
 if [ -n "${ENV_BACKUP}" ]; then
   cp "${ENV_BACKUP}" "${DASHBOARD_DST}/.env.local"
   rm "${ENV_BACKUP}"
-  ok ".env.local восстановлен"
+  ok "dashboard .env.local восстановлен"
 fi
 
-# Запускаем PM2 (standalone: node server.js напрямую, не npm start)
-if pm2 show "${PM2_NAME}" >/dev/null 2>&1; then
-  # Процесс уже зарегистрирован — рестартуем с новым кодом
-  pm2 restart "${PM2_NAME}"
-  ok "PM2 перезапущен"
+if pm2 show "${PM2_DASHBOARD}" >/dev/null 2>&1; then
+  pm2 restart "${PM2_DASHBOARD}"
+  ok "PM2 dashboard перезапущен"
 else
-  # Первый раз — регистрируем
   PORT=3000 pm2 start "${DASHBOARD_DST}/server.js" \
-    --name "${PM2_NAME}" \
+    --name "${PM2_DASHBOARD}" \
     --env production
   pm2 save
-  ok "PM2 запущен и сохранён"
+  ok "PM2 dashboard запущен и сохранён"
+fi
+
+# ============================================================
+# 3. DEPLOY NEXT.JS LANDING (STANDALONE, port 3001)
+# ============================================================
+step "3/4 Обновление Next.js landing"
+
+ENV_BACKUP_L=""
+if [ -f "${LANDING_DST}/.env.local" ]; then
+  ENV_BACKUP_L=$(mktemp)
+  cp "${LANDING_DST}/.env.local" "${ENV_BACKUP_L}"
+  ok "landing .env.local сохранён"
+fi
+
+pm2 stop "${PM2_LANDING}" 2>/dev/null && ok "PM2 landing остановлен" || warn "PM2 landing не был запущен"
+
+mkdir -p "${LANDING_DST}"
+cp -r "${SCRIPT_DIR}/landing/." "${LANDING_DST}/"
+ok "Landing файлы скопированы → ${LANDING_DST}"
+
+if [ -n "${ENV_BACKUP_L}" ]; then
+  cp "${ENV_BACKUP_L}" "${LANDING_DST}/.env.local"
+  rm "${ENV_BACKUP_L}"
+  ok "landing .env.local восстановлен"
+fi
+
+if pm2 show "${PM2_LANDING}" >/dev/null 2>&1; then
+  pm2 restart "${PM2_LANDING}"
+  ok "PM2 landing перезапущен"
+else
+  PORT=3001 pm2 start "${LANDING_DST}/server.js" \
+    --name "${PM2_LANDING}" \
+    --env production
+  pm2 save
+  ok "PM2 landing запущен и сохранён"
 fi
 
 sleep 3
 
 # ============================================================
-# 3. HEALTH CHECKS
+# 4. HEALTH CHECKS
 # ============================================================
-step "3/3 Проверка здоровья сервисов"
+step "4/4 Проверка здоровья сервисов"
 
-# API
-if curl -sf --max-time 5 http://localhost:8080/health >/dev/null 2>&1; then
-  ok "API /health: OK (порт 8080)"
+# Control plane API
+if curl -sf --max-time 5 http://localhost:8081/health >/dev/null 2>&1; then
+  ok "API /health: OK (порт 8081)"
+elif curl -sf --max-time 5 http://localhost:8080/health >/dev/null 2>&1; then
+  ok "API /health: OK (порт 8080 — legacy)"
 else
-  warn "API не отвечает на /health — проверь: journalctl -u ${SYSTEMD_SERVICE} -n 20"
+  warn "API не отвечает — проверь: journalctl -u ${SYSTEMD_SERVICE} -n 20"
 fi
 
 # Dashboard
 if curl -sf --max-time 10 http://localhost:3000 >/dev/null 2>&1; then
   ok "Dashboard: OK (порт 3000)"
 else
-  warn "Dashboard не отвечает — проверь: pm2 logs ${PM2_NAME} --lines 30"
+  warn "Dashboard не отвечает — проверь: pm2 logs ${PM2_DASHBOARD} --lines 30"
+fi
+
+# Landing
+if curl -sf --max-time 10 http://localhost:3001 >/dev/null 2>&1; then
+  ok "Landing: OK (порт 3001)"
+else
+  warn "Landing не отвечает — проверь: pm2 logs ${PM2_LANDING} --lines 30"
 fi
 
 echo ""
@@ -128,8 +200,15 @@ echo "========================================="
 ok "Деплой завершён!"
 echo ""
 echo " Полезные команды:"
-echo "   pm2 logs ${PM2_NAME}          — логи dashboard"
+echo "   pm2 logs ${PM2_DASHBOARD}         — логи dashboard"
+echo "   pm2 logs ${PM2_LANDING}           — логи landing"
 echo "   journalctl -u ${SYSTEMD_SERVICE} -f   — логи API"
-echo "   pm2 status                    — статус PM2"
+echo "   pm2 status                        — статус всех PM2 процессов"
 echo "   systemctl status ${SYSTEMD_SERVICE}   — статус API"
+echo ""
+echo " Nginx (если ещё не настроен):"
+echo "   exra.io           → proxy_pass http://localhost:3001   (landing)"
+echo "   app.exra.io       → proxy_pass http://localhost:3000   (dashboard)"
+echo "   dashboard.exra.io → proxy_pass http://localhost:3000   (dashboard)"
+echo "   api.exra.io       → proxy_pass http://localhost:8081   (control plane)"
 echo "========================================="

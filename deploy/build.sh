@@ -4,9 +4,11 @@
 # Запускать из корня репозитория: bash deploy/build.sh
 #
 # Что делает:
-#   1. Собирает Go бинарник под Linux
-#   2. Собирает Next.js dashboard (standalone режим)
-#   3. Пакует всё в tar.gz архив
+#   1. Собирает Go бинарник под Linux (server/)
+#   2. Собирает Next.js dashboard (standalone режим) — port 3000
+#   3. Собирает Next.js landing (standalone режим) — port 3001
+#   4. Копирует .env.sample для audit v2.4.1 required vars
+#   5. Пакует всё в tar.gz архив
 #
 # Результат: deploy/dist/exra-deploy-TIMESTAMP.tar.gz
 # Загружаем на сервер через WinSCP → распаковываем → запускаем server-deploy.sh
@@ -69,28 +71,45 @@ fi
 # ---- 2. Next.js dashboard ----
 step "Сборка Next.js dashboard (standalone)"
 cd "${REPO_ROOT}/dashboard"
+# Install deps if missing (идемпотентно, быстро если уже есть)
+[ ! -d node_modules ] && npm ci --no-audit --no-fund
 npm run build
-ok "Next.js build: OK"
+ok "Next.js dashboard build: OK"
 
-# ---- 3. Packaging ----
+# ---- 3. Next.js landing ----
+step "Сборка Next.js landing (standalone)"
+cd "${REPO_ROOT}/landing"
+[ ! -d node_modules ] && npm ci --no-audit --no-fund
+npm run build
+ok "Next.js landing build: OK"
+
+# ---- 4. Packaging ----
 step "Упаковка пакета: ${PACKAGE_NAME}"
-mkdir -p "${BUILD_DIR}/dashboard"
+mkdir -p "${BUILD_DIR}/dashboard" "${BUILD_DIR}/landing"
 
 # Go binary
 cp "${REPO_ROOT}/server/exra-server-linux" "${BUILD_DIR}/"
 
-# Next.js standalone (minimal runtime, не нужен npm install на сервере)
+# Dashboard — Next.js standalone (minimal runtime, не нужен npm install на сервере)
 cp -r "${REPO_ROOT}/dashboard/.next/standalone/." "${BUILD_DIR}/dashboard/"
-# Static assets и public нужно скопировать рядом со standalone
 mkdir -p "${BUILD_DIR}/dashboard/.next"
 cp -r "${REPO_ROOT}/dashboard/.next/static"  "${BUILD_DIR}/dashboard/.next/static"
 [ -d "${REPO_ROOT}/dashboard/public" ] && cp -r "${REPO_ROOT}/dashboard/public" "${BUILD_DIR}/dashboard/public" || true
+
+# Landing — Next.js standalone
+cp -r "${REPO_ROOT}/landing/.next/standalone/." "${BUILD_DIR}/landing/"
+mkdir -p "${BUILD_DIR}/landing/.next"
+cp -r "${REPO_ROOT}/landing/.next/static" "${BUILD_DIR}/landing/.next/static"
+[ -d "${REPO_ROOT}/landing/public" ] && cp -r "${REPO_ROOT}/landing/public" "${BUILD_DIR}/landing/public" || true
+
+# .env.sample — шаблон для audit v2.4.1 required vars
+cp "${REPO_ROOT}/deploy/env.sample" "${BUILD_DIR}/env.sample" 2>/dev/null || true
 
 # Серверный deploy скрипт идёт внутри архива
 cp "${REPO_ROOT}/deploy/server-deploy.sh" "${BUILD_DIR}/"
 chmod +x "${BUILD_DIR}/server-deploy.sh"
 
-# ---- 4. Archive ----
+# ---- 5. Archive ----
 step "Создание архива"
 mkdir -p "${DIST_DIR}"
 cd "${DIST_DIR}"
