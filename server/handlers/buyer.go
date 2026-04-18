@@ -37,8 +37,12 @@ func SyncBuyer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
-		jsonError(w, "email is required", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := validateEmail(req.Email); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	buyer, err := models.GetBuyerByEmail(req.Email)
@@ -76,17 +80,26 @@ func GetBuyerSessions(w http.ResponseWriter, r *http.Request) {
 const maxTopUpUSD = 10_000.0 // single top-up cap to prevent overflow / accidental over-crediting
 
 // POST /api/buyer/topup
+//
+// Validation order: parse + validate body BEFORE reading the buyer from
+// context, so a malformed payload (or a bypassed-auth path) returns a
+// clean 400 instead of NPE'ing on a nil buyer. validateFloat closes the
+// NaN/Inf hole the previous `<= 0` check missed (NaN <= 0 is false).
 func TopUpBalance(w http.ResponseWriter, r *http.Request) {
-	buyer := middleware.BuyerFromContext(r)
 	var req struct {
 		Amount float64 `json:"amount_usd"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Amount <= 0 {
-		jsonError(w, "invalid amount", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Amount > maxTopUpUSD {
-		jsonError(w, "amount exceeds maximum single top-up limit", http.StatusBadRequest)
+	if err := validateFloat("amount_usd", req.Amount, 0.01, maxTopUpUSD); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	buyer := middleware.BuyerFromContext(r)
+	if buyer == nil {
+		jsonError(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
 	if err := models.TopUpBalance(buyer.ID, req.Amount); err != nil {
