@@ -59,7 +59,7 @@ func PrecheckPayout(w http.ResponseWriter, r *http.Request) {
 		TotalFeeChain:   0,
 		WalletReady:     true,
 	}
-	precheck := models.BuildPayoutPrecheck(req.DeviceID, req.RecipientWallet, req.AmountUSD, summary.TotalUSD, fees)
+	precheck := models.BuildPayoutPrecheck(req.DeviceID, req.RecipientWallet, req.AmountUSD, summary.TotalUSD, 1.0, fees)
 	log.Printf("payout-precheck device=%s amount=%.6f balance=%.6f total_fee_chain=%.9f net=%.6f can=%t", req.DeviceID, req.AmountUSD, summary.TotalUSD, fees.TotalFeeChain, precheck.NetAmountUSD, precheck.CanPayout)
 	if !precheck.CanPayout {
 		jsonError(w, "Баланса недостаточно для оплаты газа", http.StatusBadRequest)
@@ -98,7 +98,7 @@ func RequestPayout(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "failed to load earnings", http.StatusInternalServerError)
 		return
 	}
-	precheck := models.BuildPayoutPrecheck(req.DeviceID, req.RecipientWallet, req.AmountUSD, tempSummary.TotalUSD, fees)
+	precheck := models.BuildPayoutPrecheck(req.DeviceID, req.RecipientWallet, req.AmountUSD, tempSummary.TotalUSD, 1.0, fees)
 	log.Printf("payout-request device=%s wallet=%s amount=%.6f balance=%.6f total_fee_chain=%.9f net=%.6f can=%t", req.DeviceID, req.RecipientWallet, req.AmountUSD, tempSummary.TotalUSD, fees.TotalFeeChain, precheck.NetAmountUSD, precheck.CanPayout)
 	if !precheck.CanPayout {
 		jsonError(w, "Баланса недостаточно для оплаты газа", http.StatusBadRequest)

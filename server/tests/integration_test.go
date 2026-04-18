@@ -1,11 +1,7 @@
 package tests
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"exra/db"
@@ -17,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ChainSafe/go-schnorrkel"
 	"github.com/gorilla/websocket"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -37,17 +34,19 @@ func TestMarketplaceIntegration(t *testing.T) {
 	// 1. UpsertWSNode (INSERT ... ON CONFLICT ... RETURNING 23 columns)
 	mock.ExpectQuery("INSERT INTO nodes").WillReturnRows(
 		sqlmock.NewRows([]string{
-			"id", "device_id", "ip", "address", "port", "country",
+			"id", "device_id", "public_key", "ip", "address", "port", "country",
 			"device_type", "device_tier", "is_residential", "asn_org", "status",
 			"traffic_bytes", "bandwidth_mbps",
 			"cpu_model", "cpu_cores", "vram_mb", "ram_mb",
+			"did", "identity_tier",
 			"active", "price_per_gb", "auto_price",
 			"last_seen", "last_heartbeat", "created_at",
 		}).AddRow(
-			"node-uuid", "test-worker-1", "127.0.0.1", "", 0, "",
+			"node-uuid", "test-worker-1", "pubkey-hex", "127.0.0.1", "", 0, "",
 			"amd64", "compute", true, "", "online",
 			0, 0,
 			"", 0, 0, 0,
+			"did:peaq:test-worker-1", "verified",
 			true, 1.50, true,
 			time.Now(), time.Now(), time.Now(),
 		))
@@ -83,19 +82,34 @@ func TestMarketplaceIntegration(t *testing.T) {
 	defer ws.Close()
 
 	deviceID := "test-worker-1"
-	// Generate valid ECDSA key for signing
-	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	pubBytes, _ := x509.MarshalPKIXPublicKey(&priv.PublicKey)
-	pubHex := hex.EncodeToString(pubBytes)
+	did := "did:peaq:test-worker-1"
 
-	// Sign the device_id
-	hsh := sha256.Sum256([]byte(deviceID))
-	r_sig, s_sig, _ := ecdsa.Sign(rand.Reader, priv, hsh[:])
-	signature := hex.EncodeToString(append(r_sig.Bytes(), s_sig.Bytes()...))
+	// AUDIT §1 D1: ws register now requires a valid sr25519 (Schnorrkel)
+	// DID signature over "deviceID:did". Generate a real keypair and sign.
+	var seed [32]byte
+	_, _ = rand.Read(seed[:])
+	msk, err := schnorrkel.NewMiniSecretKeyFromRaw(seed)
+	if err != nil {
+		t.Fatalf("MiniSecretKey: %v", err)
+	}
+	sk := msk.ExpandEd25519()
+	pk, _ := sk.Public()
+	pkBytes := pk.Encode()
+	pubHex := hex.EncodeToString(pkBytes[:])
+
+	signMsg := deviceID + ":" + did
+	ctx := schnorrkel.NewSigningContext([]byte("substrate"), []byte(signMsg))
+	sig, err := sk.Sign(ctx)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	sigBytes := sig.Encode()
+	signature := hex.EncodeToString(sigBytes[:])
 
 	regMsg, _ := json.Marshal(map[string]interface{}{
 		"type":      "register",
 		"device_id": deviceID,
+		"did":       did,
 		"pub_key":   pubHex,
 		"signature": signature,
 		"arch":      "amd64",

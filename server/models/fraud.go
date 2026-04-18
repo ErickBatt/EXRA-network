@@ -12,7 +12,10 @@ package models
 // Frozen nodes are permanently excluded from reward distribution.
 
 import (
+	crand "crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"exra/db"
 	"fmt"
 	"log"
@@ -316,7 +319,23 @@ func CreateCanaryTask(deviceID string) (*CanaryTask, error) {
 		return nil, fmt.Errorf("active canary task already exists")
 	}
 
-	expectedResult := "canary_expected_hash"
+	// AUDIT §1 E2: previously the literal "canary_expected_hash" was the
+	// expected hash for EVERY canary task on EVERY device. Any worker that
+	// knew the constant (it leaked via source and past traces) bypassed the
+	// check trivially. We now generate a per-task 32-byte nonce and derive
+	// the expected hash as sha256(nonce || deviceID) so:
+	//   * no two canary tasks share the same expected_result
+	//   * the value is not a compile-time literal
+	// Proper end-to-end design still requires the Oracle to pin the nonce
+	// to a specific proxy-challenge payload so the worker has to actually
+	// perform the task to reproduce the hash; this change is the minimum
+	// on-server fix to stop the universal-token attack.
+	nonce := make([]byte, 32)
+	if _, err := crand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("canary nonce: %w", err)
+	}
+	sum := sha256.Sum256(append(nonce, []byte(deviceID)...))
+	expectedResult := hex.EncodeToString(sum[:])
 
 	task := &CanaryTask{}
 	err = db.DB.QueryRow(`

@@ -94,6 +94,58 @@ func DeductBalance(buyerID string, amountUSD float64) error {
 	return nil
 }
 
+// HoldBalance atomically reserves `amountUSD` on the buyer's balance
+// before a Gateway session is opened. Returns ErrInsufficientBalance if the
+// buyer cannot cover the hold.
+//
+// AUDIT §1 B3: previously CreateOfferAndMatch issued a Gateway JWT without
+// checking balance, so a buyer with $0.01 could spin up N concurrent 100GB
+// sessions and FinalizeSession would later fail with
+// ErrInsufficientBuyerBalance leaving workers unpaid.
+//
+// The hold is a subtractive "balance_hold" on buyers.balance_usd, using the
+// same pattern as DeductBalance (atomic SET ... WHERE balance_usd >= $1 under
+// Postgres MVCC; no explicit FOR UPDATE needed because the predicate guarantees
+// serialisable behaviour for this row). Release happens in ReleaseBalanceHold
+// if the session never materialises or FinalizeSession settles with a smaller
+// actual cost.
+func HoldBalance(buyerID string, amountUSD float64) error {
+	if amountUSD <= 0 {
+		return nil
+	}
+	res, err := db.DB.Exec(
+		`UPDATE buyers
+		 SET balance_usd = balance_usd - $1
+		 WHERE id = $2 AND balance_usd >= $1`,
+		amountUSD, buyerID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrInsufficientBalance
+	}
+	return nil
+}
+
+// ReleaseBalanceHold returns `amountUSD` to the buyer's balance. Used by
+// Gateway/Matcher clean-up paths when a held session never opens or closes
+// with usage below the hold amount.
+func ReleaseBalanceHold(buyerID string, amountUSD float64) error {
+	if amountUSD <= 0 {
+		return nil
+	}
+	_, err := db.DB.Exec(
+		`UPDATE buyers SET balance_usd = balance_usd + $1 WHERE id = $2`,
+		amountUSD, buyerID,
+	)
+	return err
+}
+
 func generateAPIKey() (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {

@@ -5,16 +5,52 @@ import (
 	"exra/middleware"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gorilla/websocket"
 )
 
+// allowedOrigins is the CSRF origin whitelist for WebSocket upgrades
+// (AUDIT §1 D3). Populated from WS_ALLOWED_ORIGINS (comma-separated). A
+// request with no Origin header is accepted so native Android/desktop nodes
+// — which do not set Origin — keep working; browser-originating requests
+// must match the whitelist exactly. Empty whitelist disables the check
+// (dev-only posture; production deployments MUST set this).
+var allowedOrigins = func() map[string]struct{} {
+	raw := strings.TrimSpace(os.Getenv("WS_ALLOWED_ORIGINS"))
+	if raw == "" {
+		return nil
+	}
+	set := make(map[string]struct{})
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			set[o] = struct{}{}
+		}
+	}
+	return set
+}()
+
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Native clients (Android/desktop nodes) don't send Origin.
+			return true
+		}
+		if allowedOrigins == nil {
+			// Whitelist not configured — dev mode, accept all. Log once
+			// per upgrade so operators see they're running open.
+			log.Printf("[WS] WARNING: WS_ALLOWED_ORIGINS unset, accepting Origin=%q", origin)
+			return true
+		}
+		_, ok := allowedOrigins[origin]
+		if !ok {
+			log.Printf("[WS] Rejecting Origin=%q (CSRF guard, AUDIT §1 D3)", origin)
+		}
+		return ok
 	},
 }
 

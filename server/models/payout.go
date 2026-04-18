@@ -114,9 +114,13 @@ func GetNodeEarnings(deviceID string) (*NodeEarningsSummary, error) {
 	return out, nil
 }
 
-func BuildPayoutPrecheck(deviceID, recipientWallet string, amountUSD float64, balanceUSD float64, fees PayoutFeeBreakdown) *PayoutPrecheck {
-	// In Peaq V2, fees are in USD equivalents for UI consistency or handled on-chain.
-	totalFeeUSD := fees.TotalFeeChain // chain fee is now already normalized to USD or 1:1 EXRA
+func BuildPayoutPrecheck(deviceID, recipientWallet string, amountUSD float64, balanceUSD float64, chainPriceUSD float64, fees PayoutFeeBreakdown) *PayoutPrecheck {
+	// Convert chain-denominated fee into USD. Callers that already price
+	// fees in USD pass chainPriceUSD = 1.0.
+	if chainPriceUSD <= 0 {
+		chainPriceUSD = 1.0
+	}
+	totalFeeUSD := fees.TotalFeeChain * chainPriceUSD
 	net := amountUSD - totalFeeUSD
 	can := balanceUSD >= totalFeeUSD && net > 0
 	alert := ""

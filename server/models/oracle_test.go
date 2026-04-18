@@ -78,22 +78,11 @@ func TestCheckOracleConsensus_Thresholds(t *testing.T) {
 		WithArgs(batchDate, batchHash).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	batchID := int64(12345)
-	// Expect lookup of consensus batch for finalization
-	mock.ExpectQuery(`SELECT id FROM oracle_batches`).
-		WithArgs(batchDate, batchHash).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(batchID))
-
-	// Expect batch_id tagging in earnings
-	mock.ExpectExec(`UPDATE node_earnings SET batch_id = \$1`).
-		WithArgs(batchID, batchDate).
-		WillReturnResult(sqlmock.NewResult(0, 10))
-
-	// Expect 'applied' update (from mock mint trigger)
-	mock.ExpectExec(`UPDATE oracle_batches SET status = 'applied'`).
-		WithArgs(batchID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
+	// TriggerBatchMint / TriggerReputationBatch are no-ops when peaqClient
+	// is nil (unit test — they log "Skip ... Peaq client not initialized"
+	// and return). The finalisation queries (SELECT id, UPDATE node_earnings,
+	// UPDATE status='applied') therefore don't fire. The e2e test in
+	// tests/e2e_peaq_test.go mocks the Peaq client and exercises that path.
 	CheckOracleConsensus(batchDate, batchHash, 3)
 
 	assert.NoError(t, mock.ExpectationsWereMet())

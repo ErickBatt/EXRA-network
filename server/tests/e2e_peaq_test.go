@@ -23,6 +23,11 @@ func (m *MockPeaqClient) SendBatchMint(batchID []byte, rewards []peaq.RewardEntr
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockPeaqClient) SendReputationUpdates(updateID []byte, updates []peaq.ReputationUpdate, sigs []peaq.OracleSignature) (string, error) {
+	args := m.Called(updateID, updates, sigs)
+	return args.String(0), args.Error(1)
+}
+
 func TestE2EPeaqConsensusAndMint(t *testing.T) {
 	// 1. Setup DB Mock
 	mockDB, mockSQL, err := sqlmock.New()

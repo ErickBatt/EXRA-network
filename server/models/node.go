@@ -522,3 +522,14 @@ func GetNodePublicKeyByDID(did string, dest *string) error {
 func GetNodePublicKey(deviceID string, dest *string) error {
 	return db.DB.QueryRow(`SELECT public_key FROM nodes WHERE device_id = $1`, deviceID).Scan(dest)
 }
+
+// GetNodeAuthByDeviceID fetches the DID and public key for a device in a
+// single round-trip. Used by TunnelHandler (AUDIT §1 G1) to verify that an
+// incoming tunnel request is signed by the node the matcher selected.
+func GetNodeAuthByDeviceID(deviceID string) (pubKey, did string, err error) {
+	err = db.DB.QueryRow(
+		`SELECT COALESCE(public_key, ''), COALESCE(did, '') FROM nodes WHERE device_id = $1`,
+		deviceID,
+	).Scan(&pubKey, &did)
+	return
+}

@@ -2,34 +2,27 @@ package handlers
 
 import (
 	"encoding/json"
+	"exra/gwclaims"
 	"exra/hub"
 	"exra/middleware"
 	"exra/models"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
-
-var gatewaySecret = []byte(os.Getenv("GATEWAY_JWT_SECRET"))
-
-func init() {
-	if len(gatewaySecret) == 0 {
-		gatewaySecret = []byte("default_gateway_secret_change_me_in_production")
-	}
-}
-
-type GatewayClaims struct {
-	SessionID string `json:"session_id"`
-	Role      string `json:"role"` // "node" or "buyer"
-	jwt.RegisteredClaims
-}
 
 type MatcherHandler struct {
 	Hub *hub.Hub
+}
+
+// scoredCandidate is a ranked match candidate: the parsed node plus its raw
+// JSON (needed verbatim as the Redis ZSET member for atomic ZREM).
+type scoredCandidate struct {
+	node    models.PublicNode
+	rawJSON string
+	score   float64
 }
 
 func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Request) {
@@ -63,81 +56,121 @@ func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Requ
 		avgPrice = 1.50 // fallback
 	}
 
-	// 3. Fetch top nodes from Redis ZSET (Tier A)
-	nodesRaw, err := h.Hub.GetDiscoveryNodes(r.Context(), offer.Country, "A", 10)
+	// 3. Fetch top nodes from Redis ZSET (Tier A, then B if empty)
+	rsTier := "A"
+	nodesRaw, err := h.Hub.GetDiscoveryNodes(r.Context(), offer.Country, rsTier, 10)
 	if err != nil || len(nodesRaw) == 0 {
-		// Try Tier B if A is empty
-		nodesRaw, _ = h.Hub.GetDiscoveryNodes(r.Context(), offer.Country, "B", 10)
+		rsTier = "B"
+		nodesRaw, _ = h.Hub.GetDiscoveryNodes(r.Context(), offer.Country, rsTier, 10)
 	}
-	
 	if len(nodesRaw) == 0 {
 		jsonError(w, "no nodes available for matching in this region", http.StatusNotFound)
 		return
 	}
 
-	// 4. Scoring
-	var bestNode models.PublicNode
-	bestScore := -1.0
-
+	// 4. Score all candidates, sort desc. We need the full ranking (not just
+	// the argmax) so that if the top pick loses the atomic claim race we can
+	// fall back to the next best candidate in a single matcher pass. This is
+	// part of the AUDIT §1 B1 fix.
+	candidates := make([]scoredCandidate, 0, len(nodesRaw))
 	for _, nodeJSON := range nodesRaw {
 		var node models.PublicNode
 		if err := json.Unmarshal([]byte(nodeJSON), &node); err != nil {
 			continue
 		}
+		candidates = append(candidates, scoredCandidate{
+			node:    node,
+			rawJSON: nodeJSON,
+			score:   calculateBidScore(offer.Price, avgPrice, node),
+		})
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
 
-		score := calculateBidScore(offer.Price, avgPrice, node)
-		if score > bestScore {
-			bestScore = score
-			bestNode = node
+	// 5. Atomic claim: remove the chosen node from the pool and write a TTL
+	// lease BEFORE issuing any JWT (AUDIT §1 B1). If the top pick is already
+	// leased by a concurrent matcher, fall through to the next best.
+	sessionID := fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	const claimTTL = 60 * time.Second
+	var bestNode models.PublicNode
+	var bestScore float64
+	claimed := false
+	for _, c := range candidates {
+		ok, claimErr := h.Hub.AtomicClaimNode(r.Context(), offer.Country, rsTier, c.node.DeviceID, c.rawJSON, sessionID, claimTTL)
+		if claimErr != nil {
+			continue
+		}
+		if ok {
+			bestNode = c.node
+			bestScore = c.score
+			claimed = true
+			break
 		}
 	}
-
-	// 5. Generate Gateway JWTs
-	sessionID := fmt.Sprintf("sess_%d", time.Now().UnixNano())
-	
-	// Token for Buyer
-	buyerClaims := GatewayClaims{
-		SessionID: sessionID,
-		Role:      "buyer",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
-		},
+	if !claimed {
+		jsonError(w, "no nodes available: all candidates are currently leased", http.StatusServiceUnavailable)
+		return
 	}
-	buyerToken := jwt.NewWithClaims(jwt.SigningMethodHS256, buyerClaims)
-	signedBuyerToken, _ := buyerToken.SignedString(gatewaySecret)
 
-	// Token for Node
-	nodeClaims := GatewayClaims{
-		SessionID: sessionID,
-		Role:      "node",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
-		},
+	// 6. Balance hold — atomic SELECT/UPDATE ... WHERE balance_usd >= cost.
+	// Must happen AFTER claim and BEFORE JWT issuance (AUDIT §1 B3). If the
+	// buyer cannot cover the hold, release the node lease and return 402.
+	cost := offer.Price * offer.TargetGB
+	if err := models.HoldBalance(buyer.ID, cost); err != nil {
+		_ = h.Hub.ReleaseNodeLease(r.Context(), bestNode.DeviceID)
+		if err == models.ErrInsufficientBalance {
+			jsonError(w, "insufficient buyer balance for requested session", http.StatusPaymentRequired)
+		} else {
+			jsonError(w, "balance hold failed", http.StatusInternalServerError)
+		}
+		return
 	}
-	nodeToken := jwt.NewWithClaims(jwt.SigningMethodHS256, nodeClaims)
-	signedNodeToken, _ := nodeToken.SignedString(gatewaySecret)
 
-	// 6. Update Redis session with ACTUAL Buyer ID
-	h.Hub.CreateSessionInRedis(r.Context(), sessionID, map[string]interface{}{
-		"buyer_id": buyer.ID,
-		"node_did": bestNode.ID,
-		"credits":  offer.Price * offer.TargetGB,
-		"status":   "starting",
+	// 7. Generate Gateway JWTs (EdDSA, no hardcoded fallback — AUDIT §1 D1).
+	signedBuyerToken, err := gwclaims.Sign(sessionID, buyer.ID, "buyer", gwclaims.DefaultTTL)
+	if err != nil {
+		_ = h.Hub.ReleaseNodeLease(r.Context(), bestNode.DeviceID)
+		_ = models.ReleaseBalanceHold(buyer.ID, cost)
+		jsonError(w, "token signing failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	signedNodeToken, err := gwclaims.Sign(sessionID, "", "node", gwclaims.DefaultTTL)
+	if err != nil {
+		_ = h.Hub.ReleaseNodeLease(r.Context(), bestNode.DeviceID)
+		_ = models.ReleaseBalanceHold(buyer.ID, cost)
+		jsonError(w, "token signing failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 8. Persist session state in Redis. price_per_gb is read by the Gateway
+	// billing settlement path (AUDIT §1 G3) so both planes agree on the tariff.
+	_ = h.Hub.CreateSessionInRedis(r.Context(), sessionID, map[string]interface{}{
+		"buyer_id":     buyer.ID,
+		"node_did":     bestNode.ID,
+		"credits":      cost,
+		"price_per_gb": offer.Price,
+		"status":       "starting",
 	})
 
-	// 7. Notify Node via WS Hub to connect to Gateway (with Node JWT)
+	// 9. Notify the node. Non-blocking: if its send queue is full, release the
+	// lease + hold rather than pinning the HTTP goroutine (AUDIT §2 B4).
 	gatewayURL := os.Getenv("GATEWAY_URL")
 	if gatewayURL == "" {
 		gatewayURL = "wss://gateway.exra.network/gateway"
 	}
-
 	payload, _ := json.Marshal(map[string]interface{}{
 		"type":        "gateway_connect",
 		"session_id":  sessionID,
 		"gateway_url": gatewayURL + "?jwt=" + signedNodeToken,
 	})
-	if client, ok := h.Hub.GetClient(bestNode.ID); ok {
-		client.Send <- payload
+	if client, ok := h.Hub.GetClient(bestNode.DeviceID); ok {
+		select {
+		case client.Send <- payload:
+		default:
+			_ = h.Hub.ReleaseNodeLease(r.Context(), bestNode.DeviceID)
+			_ = models.ReleaseBalanceHold(buyer.ID, cost)
+			jsonError(w, "selected node is backpressured", http.StatusServiceUnavailable)
+			return
+		}
 	}
 
 	jsonResponse(w, map[string]any{
@@ -148,14 +181,40 @@ func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Requ
 	}, http.StatusOK)
 }
 
+// calculateBidScore implements the matchmaking formula from
+// MASTER_PLAN/v2.4.1: 50% Reputation Score + 50% Latency/Geo. Because
+// per-node RTT telemetry is not yet collected, Latency/Geo is currently
+// approximated as 0.25*Uptime + 0.25*priceFitness where priceFitness is a
+// clamped ratio of offer.Price to the country's average. See AUDIT §1 B2 for
+// the finding that the previous 0.3 RS weight understated reputation and
+// that the 5% uniform jitter produced nondeterministic double-pickups.
 func calculateBidScore(offerPrice, avgPrice float64, node models.PublicNode) float64 {
-	// Formula: 0.4*(offer.Price/avgPrice) + 0.3*(node.RS/1000) + 0.2*node.Uptime + 0.1*peakBonus + rand.Float64()*0.05
-	
-	peakBonus := 0.0
-	if node.RSTier == "A" {
-		peakBonus = 0.1
+	rsScore := node.RSScore / 1000.0
+	if rsScore < 0 {
+		rsScore = 0
+	}
+	if rsScore > 1 {
+		rsScore = 1
 	}
 
-	score := 0.4*(offerPrice/avgPrice) + 0.3*(node.RSScore/1000.0) + 0.2*node.Uptime + 0.1*peakBonus + rand.Float64()*0.05
-	return score
+	uptimeScore := node.Uptime
+	if uptimeScore < 0 {
+		uptimeScore = 0
+	}
+	if uptimeScore > 1 {
+		uptimeScore = 1
+	}
+
+	priceFitness := 0.0
+	if avgPrice > 0 {
+		priceFitness = offerPrice / avgPrice
+	}
+	if priceFitness < 0 {
+		priceFitness = 0
+	}
+	if priceFitness > 1 {
+		priceFitness = 1
+	}
+
+	return 0.5*rsScore + 0.25*uptimeScore + 0.25*priceFitness
 }
