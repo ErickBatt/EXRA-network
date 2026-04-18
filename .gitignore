@@ -1,6 +1,10 @@
 # Build artifacts
 server/exra-server
 android/app/build/
+android/.gradle/
+android/build/
+android/**/build/
+android/**/.gradle/
 dashboard/.next/
 dashboard/node_modules/
 node_modules/
