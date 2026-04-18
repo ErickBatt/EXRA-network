@@ -549,6 +549,21 @@ fn test_17_price_nonce_replay_rejected() {
 }
 
 #[test]
+fn test_19_fund_vault_root_only_and_post_finalize() {
+	new_test_ext().execute_with(|| {
+		let keys = oracle_keys();
+		boot_finalized(&keys);
+		// Non-root rejected.
+		assert!(Exra::fund_vault(RuntimeOrigin::signed(user(99)), user(99), 1_000).is_err());
+		// Root allowed — even post-finalize (B2B top-ups must remain possible).
+		let before = VAULT_USDT.with(|v| *v.borrow());
+		assert_ok!(Exra::fund_vault(RuntimeOrigin::root(), user(99), 5_000));
+		let after = VAULT_USDT.with(|v| *v.borrow());
+		assert_eq!(after, before + 5_000);
+	});
+}
+
+#[test]
 fn test_18_claim_mismatch_rejected() {
 	new_test_ext().execute_with(|| {
 		let keys = oracle_keys();

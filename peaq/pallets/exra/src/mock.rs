@@ -70,6 +70,7 @@ parameter_types! {
 	pub const ExraTreasury: PalletId = PalletId(*b"exra/trs");
 	pub const ExraVault: PalletId = PalletId(*b"exra/vlt");
 	pub const MockGenesis: H256 = H256([7u8; 32]);
+	pub const MockUsdtAssetId: u32 = 31337;
 }
 
 pub struct MockUsdt;
@@ -108,6 +109,7 @@ impl pallet_exra::Config for Test {
 	type Usdt = MockUsdt;
 	type PalletIdTreasury = ExraTreasury;
 	type PalletIdVault = ExraVault;
+	type UsdtAssetId = MockUsdtAssetId;
 	type ChainGenesisHash = MockGenesis;
 }
 

@@ -133,6 +133,13 @@ pub mod pallet {
 		#[pallet::constant]
 		type PalletIdVault: Get<PalletId>;
 
+		/// On-chain USDT asset id. Surfaced as a `#[pallet::constant]` so
+		/// auditors can verify via chain metadata which asset backs the vault.
+		/// The runtime wires this to the `pallet-assets` id of the canonical
+		/// USDT on peaq.
+		#[pallet::constant]
+		type UsdtAssetId: Get<u32>;
+
 		/// Genesis hash of this chain. Mixed into the signature commitment to
 		/// prevent replay across chains that share oracle keys.
 		#[pallet::constant]
@@ -282,6 +289,7 @@ pub mod pallet {
 		},
 		TierChanged { account: T::AccountId, tier: TierType },
 		EpochAdvanced { epoch: u32, new_mult: Permill },
+		VaultFunded { from: T::AccountId, amount: BalanceOf<T> },
 	}
 
 	// ---------- Errors ----------
@@ -785,6 +793,24 @@ pub mod pallet {
 				amount_burned: slash_amount,
 				reason_hash,
 			});
+			Ok(())
+		}
+
+		/// Root-only. Transfer `amount` USDT from `from` to the vault sub-account.
+		/// Used at bootstrap and for future B2B top-ups when treasury-side EXRA
+		/// runs out. NOT blocked by `IsFinalized` — vault must remain fundable
+		/// for the protocol's entire life.
+		#[pallet::call_index(11)]
+		#[pallet::weight(Weight::from_parts(10_000, 0).saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
+		pub fn fund_vault(
+			origin: OriginFor<T>,
+			from: T::AccountId,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			ensure!(!amount.is_zero(), Error::<T>::ClaimMismatch);
+			T::Usdt::deposit_to_vault(&from, amount)?;
+			Self::deposit_event(Event::VaultFunded { from, amount });
 			Ok(())
 		}
 	}
