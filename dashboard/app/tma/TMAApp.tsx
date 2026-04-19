@@ -1,33 +1,30 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import WebApp from "@twa-dev/sdk"
-import { motion } from "framer-motion"
-import { Smartphone, Monitor, Zap, X, ArrowUpRight, RefreshCw, Plus } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  Smartphone, Monitor, Router, X, ArrowUpRight, RefreshCw, Plus, Zap,
+  Check, AlertCircle, Wifi
+} from "lucide-react"
 import LavaHero from "@/components/LavaHero"
 import "./tma.css"
 
-// TMA calls go through Next.js server-side proxy at /next-tma/*.
-// Path avoids /api/ prefix so nginx routes it to Next.js (port 3000),
-// not directly to Go backend (port 8080). NODE_SECRET stays server-side only.
 const TMA_PROXY = "/next-tma"
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || {})
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json")
   const res = await fetch(`${TMA_PROXY}${path}`, { ...init, headers, cache: "no-store" })
-  
+
   if (!res.ok) {
     let msg = `API ${res.status}`
     try {
       const data = await res.json()
       if (data && data.error) msg = data.error
-    } catch (e) {
-      // Not JSON or no error field
-    }
+    } catch {}
     throw new Error(msg)
   }
-  
   return res.json() as Promise<T>
 }
 
@@ -49,6 +46,50 @@ interface Account {
   total_exra: number
 }
 
+type Toast = { id: number; kind: "success" | "error" | "info"; text: string }
+
+/** Seeded sparkline — deterministic per device so UI doesn't jitter on re-render. */
+function Sparkline({ seed, color = "#67e8f9", width = 44, height = 22, points = 16 }: {
+  seed: string; color?: string; width?: number; height?: number; points?: number
+}) {
+  // Cheap deterministic PRNG from seed hash
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) }
+  const rand = () => { h = Math.imul(h ^ (h >>> 15), h | 1); h ^= h + Math.imul(h ^ (h >>> 7), h | 61); return ((h ^ (h >>> 14)) >>> 0) / 4294967296 }
+
+  const values: number[] = []
+  let v = 0.5
+  for (let i = 0; i < points; i++) {
+    v += (rand() - 0.45) * 0.22
+    v = Math.max(0.05, Math.min(0.95, v))
+    values.push(v)
+  }
+  const step = width / (points - 1)
+  const path = values.map((val, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - val * height).toFixed(1)}`).join(" ")
+  const area = `${path} L${width},${height} L0,${height} Z`
+  const id = `sp-${seed.replace(/[^a-z0-9]/gi, "").slice(0, 8)}`
+
+  return (
+    <svg className="device-sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${id})`} />
+      <path d={path} fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function deviceIconFor(type?: string) {
+  const t = (type || "").toLowerCase()
+  if (t.includes("phone")) return { Icon: Smartphone, variant: "cyan" as const }
+  if (t.includes("router") || t.includes("pi")) return { Icon: Router, variant: "green" as const }
+  return { Icon: Monitor, variant: "violet" as const }
+}
+
 export default function TMAApp() {
   const [account, setAccount] = useState<Account | null>(null)
   const [loading, setLoading] = useState(true)
@@ -63,22 +104,35 @@ export default function TMAApp() {
   const [withdrawLoading, setWithdrawLoading] = useState(false)
   const [epoch, setEpoch] = useState<any>(null)
   const [isWaitingApproval, setIsWaitingApproval] = useState(false)
-  const [linkRequestId, setLinkRequestId] = useState("")
+  const [, setLinkRequestId] = useState("")
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const toastIdRef = useRef(0)
+
+  const pushToast = (kind: Toast["kind"], text: string, ttl = 3200) => {
+    const id = ++toastIdRef.current
+    setToasts(t => [...t, { id, kind, text }])
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ttl)
+  }
+
+  const haptic = (type: "light" | "medium" | "heavy" | "success" | "error" = "light") => {
+    try {
+      if (type === "success") WebApp.HapticFeedback.notificationOccurred("success")
+      else if (type === "error") WebApp.HapticFeedback.notificationOccurred("error")
+      else WebApp.HapticFeedback.impactOccurred(type)
+    } catch {}
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return
     WebApp.ready()
     WebApp.expand()
-    WebApp.setHeaderColor("#111110")
+    WebApp.setHeaderColor("#09090b")
     authenticate()
   }, [])
 
   useEffect(() => {
     if (!isWaitingApproval) return
-    const interval = setInterval(() => {
-      // Re-fetch account. If the device appears in the list, it means it's linked.
-      silentAuthenticate()
-    }, 3000)
+    const interval = setInterval(silentAuthenticate, 3000)
     return () => clearInterval(interval)
   }, [isWaitingApproval])
 
@@ -91,13 +145,12 @@ export default function TMAApp() {
         body: JSON.stringify({ init_data: initData }),
       })
       setAccount(acc)
-      // Check if the device we're waiting for is now in the list
       if (acc.devices.some((d: any) => d.device_id === linkDeviceId)) {
         setIsWaitingApproval(false)
         setShowLinkDevice(false)
         setLinkDeviceId("")
-        WebApp.HapticFeedback.notificationOccurred("success")
-        WebApp.showAlert("Device linked successfully!")
+        haptic("success")
+        pushToast("success", "Device linked")
       }
     } catch (e) {
       console.error("Polling error", e)
@@ -115,19 +168,21 @@ export default function TMAApp() {
         return
       }
       const [acc, ep] = await Promise.all([
-        apiFetch<any>("/auth", {
-          method: "POST",
-          body: JSON.stringify({ init_data: initData }),
-        }),
+        apiFetch<any>("/auth", { method: "POST", body: JSON.stringify({ init_data: initData }) }),
         apiFetch<any>("/epoch"),
       ])
       setAccount(acc)
       setEpoch(ep)
-    } catch (err: any) {
+    } catch {
       setError("Failed to load account")
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleRefresh = () => {
+    haptic("light")
+    authenticate()
   }
 
   const handleLinkDevice = async () => {
@@ -156,11 +211,13 @@ export default function TMAApp() {
       } else {
         setShowLinkDevice(false)
         setLinkDeviceId("")
-        WebApp.HapticFeedback.notificationOccurred("success")
+        haptic("success")
+        pushToast("success", "Device linked")
         authenticate()
       }
     } catch (err: any) {
       setLinkError(err.message)
+      haptic("error")
     } finally {
       setLinkLoading(false)
     }
@@ -169,10 +226,9 @@ export default function TMAApp() {
   const handleWithdraw = async () => {
     if (!account || !withdrawWallet) return
     const device = account.devices[0]
-    if (!device) return alert("No device linked")
+    if (!device) { pushToast("error", "No device linked"); return }
     setWithdrawLoading(true)
     try {
-      // /api/tma/withdraw is nodeAuth-protected — correct TMA withdrawal endpoint
       await apiFetch("/withdraw", {
         method: "POST",
         body: JSON.stringify({
@@ -182,34 +238,44 @@ export default function TMAApp() {
         }),
       })
       setShowWithdraw(false)
-      WebApp.showAlert("Withdrawal submitted! Usually processed within 24h.")
-      WebApp.HapticFeedback.notificationOccurred("success")
+      haptic("success")
+      pushToast("success", "Withdrawal submitted — usually within 24h")
       authenticate()
     } catch (err: any) {
-      alert("Withdrawal failed: " + err.message)
+      haptic("error")
+      pushToast("error", "Withdrawal failed: " + err.message)
     } finally {
       setWithdrawLoading(false)
     }
   }
 
+  // ===== LOADING =====
   if (loading) {
     return (
-      <div className="tma-root" style={{ alignItems: "center", justifyContent: "center" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "40px", marginBottom: "16px" }}>⚡</div>
-          <div style={{ fontSize: "13px", color: "var(--ink-dim)" }}>Loading...</div>
+      <div className="tma-root">
+        <div className="tma-splash">
+          <div className="splash-logo">
+            <Zap size={28} strokeWidth={2.4} />
+          </div>
+          <div className="splash-label">Syncing with peaq</div>
         </div>
       </div>
     )
   }
 
+  // ===== ERROR =====
   if (error) {
     return (
-      <div className="tma-root" style={{ alignItems: "center", justifyContent: "center", padding: "32px" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "40px", marginBottom: "16px" }}>⚠️</div>
-          <div style={{ fontSize: "14px", color: "#ff4444", marginBottom: "16px" }}>{error}</div>
-          <button className="primary-btn" onClick={authenticate}>retry</button>
+      <div className="tma-root">
+        <div className="tma-splash">
+          <div className="splash-logo" style={{ background: "rgba(239,68,68,0.12)", boxShadow: "0 0 20px rgba(239,68,68,0.3)", color: "#ef4444" }}>
+            <AlertCircle size={28} strokeWidth={2.4} />
+          </div>
+          <div style={{ fontSize: 13.5, color: "var(--ink-muted)", marginBottom: 12, lineHeight: 1.5 }}>{error}</div>
+          <button className="btn-primary" onClick={authenticate}>
+            <RefreshCw size={14} />
+            Retry
+          </button>
         </div>
       </div>
     )
@@ -217,180 +283,264 @@ export default function TMAApp() {
 
   if (!account) return null
 
+  const onlineCount = account.devices.filter(d => d.status === "online").length
+
   return (
     <div className="tma-root">
       {/* HEADER */}
       <header className="tma-header">
-        <div className="tma-avatar">
-          {account.first_name?.charAt(0) || "E"}
-        </div>
+        <div className="tma-avatar">{account.first_name?.charAt(0).toUpperCase() || "E"}</div>
         <div className="tma-title-group">
           <div className="tma-title">{account.first_name || "EXRA"}</div>
           <div className="tma-subtitle">
-            {account.devices.length} device{account.devices.length !== 1 ? "s" : ""} connected
+            <Wifi size={10} strokeWidth={2.2} style={{ color: onlineCount > 0 ? "var(--success)" : "var(--ink-ghost)" }} />
+            {account.devices.length} {account.devices.length === 1 ? "node" : "nodes"} · {onlineCount} online
           </div>
         </div>
-        <button className="tma-back-btn" onClick={() => WebApp.close()}>
-          <X size={18} color="var(--ink-dim)" />
+        <button className="tma-back-btn" aria-label="Close" onClick={() => WebApp.close()}>
+          <X size={16} />
         </button>
       </header>
 
       {/* WITHDRAW MODAL */}
-      {showWithdraw && (
-        <div className="tma-modal">
-          <div className="tma-modal-card">
-            <div className="modal-header">
-              <span className="modal-title">Withdraw</span>
-              <button className="modal-close" onClick={() => setShowWithdraw(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="api-label">TON WALLET ADDRESS</div>
-              <div className="input-wrap">
-                <input type="text" placeholder="UQ..." value={withdrawWallet} onChange={e => setWithdrawWallet(e.target.value)} />
+      <AnimatePresence>
+        {showWithdraw && (
+          <motion.div
+            key="modal-withdraw"
+            className="tma-modal"
+            onClick={(e) => e.target === e.currentTarget && setShowWithdraw(false)}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="tma-modal-card"
+              initial={{ y: 40 }} animate={{ y: 0 }} exit={{ y: 40 }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+            >
+              <div className="modal-header">
+                <span className="modal-title">Withdraw</span>
+                <button className="modal-close" onClick={() => setShowWithdraw(false)}>✕</button>
               </div>
-              <div className="api-label" style={{ marginTop: "12px" }}>AMOUNT (USD)</div>
-              <div className="input-wrap">
-                <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
-              </div>
-              <button className="primary-btn" style={{ marginTop: "20px", width: "100%" }} onClick={handleWithdraw} disabled={withdrawLoading}>
-                {withdrawLoading ? "processing..." : "confirm withdrawal →"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* LINK DEVICE MODAL */}
-      {showLinkDevice && (
-        <div className="tma-modal">
-          <div className="tma-modal-card">
-            <div className="modal-header">
-              <span className="modal-title">Add Device</span>
-              <button className="modal-close" onClick={() => { setShowLinkDevice(false); setLinkError("") }}>✕</button>
-            </div>
-            <div className="modal-body">
-              {isWaitingApproval ? (
-                <div style={{ textAlign: "center", padding: "20px 0" }}>
-                  <div style={{ animation: "spin 2s linear infinite", fontSize: "32px", marginBottom: "16px" }}>⏳</div>
-                  <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>Waiting for approval</div>
-                  <div style={{ fontSize: "12px", color: "var(--ink-dim)", lineHeight: "1.5" }}>
-                    A request has been sent to your device.<br/>
-                    Please open the EXRA app and tap <b>Approve</b>.
-                  </div>
-                  <button className="primary-btn" style={{ marginTop: "24px", width: "100%", background: "none", border: "1px solid var(--border)", color: "var(--ink)" }} onClick={() => setIsWaitingApproval(false)}>
-                    cancel
-                  </button>
+              <div className="modal-body">
+                <div className="api-label">TON wallet address</div>
+                <div className="input-wrap">
+                  <input type="text" placeholder="UQ…" value={withdrawWallet} onChange={e => setWithdrawWallet(e.target.value)} />
                 </div>
-              ) : (
-                <>
-                  <div style={{ fontSize: "12px", color: "var(--ink-dim)", marginBottom: "16px", lineHeight: "1.5" }}>
-                    Open the EXRA app on your device → Settings → copy Device ID
+                <div className="api-label mt-md">Amount (USD)</div>
+                <div className="input-wrap">
+                  <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
+                </div>
+                <button className="btn-primary w-full mt-lg" onClick={handleWithdraw} disabled={withdrawLoading}>
+                  {withdrawLoading ? (<><div className="spinner" /> Processing…</>) : (<>Confirm withdrawal <ArrowUpRight size={15} /></>)}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* LINK DEVICE MODAL */}
+        {showLinkDevice && (
+          <motion.div
+            key="modal-link"
+            className="tma-modal"
+            onClick={(e) => { if (e.target === e.currentTarget) { setShowLinkDevice(false); setLinkError("") } }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="tma-modal-card"
+              initial={{ y: 40 }} animate={{ y: 0 }} exit={{ y: 40 }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+            >
+              <div className="modal-header">
+                <span className="modal-title">Add device</span>
+                <button className="modal-close" onClick={() => { setShowLinkDevice(false); setLinkError("") }}>✕</button>
+              </div>
+              <div className="modal-body">
+                {isWaitingApproval ? (
+                  <div className="waiting">
+                    <div className="waiting-logo"><Zap size={26} strokeWidth={2.4} /></div>
+                    <div className="waiting-title">Waiting for approval</div>
+                    <div className="waiting-sub">
+                      A request has been sent to your device. Open the EXRA app and tap{" "}
+                      <strong style={{ color: "var(--neon-bright)" }}>Approve</strong>.
+                    </div>
+                    <button className="btn-secondary mt-md" onClick={() => setIsWaitingApproval(false)}>Cancel</button>
                   </div>
-                  <div className="api-label">DEVICE ID</div>
-                  <div className="input-wrap">
-                    <input type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={linkDeviceId} onChange={e => setLinkDeviceId(e.target.value)} />
-                  </div>
-                  {linkError && <div style={{ color: "#ff4444", fontSize: "12px", marginTop: "8px" }}>{linkError}</div>}
-                  <button className="primary-btn" style={{ marginTop: "16px", width: "100%" }} onClick={handleLinkDevice} disabled={linkLoading}>
-                    {linkLoading ? "linking..." : "link device →"}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12.5, color: "var(--ink-muted)", marginBottom: 14, lineHeight: 1.55 }}>
+                      Open the EXRA app on your device → Settings → copy Device ID.
+                    </div>
+                    <div className="api-label">Device ID</div>
+                    <div className="input-wrap">
+                      <input type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={linkDeviceId} onChange={e => setLinkDeviceId(e.target.value)} />
+                    </div>
+                    {linkError && <div className="error-text">{linkError}</div>}
+                    <button className="btn-primary w-full mt-md" onClick={handleLinkDevice} disabled={linkLoading}>
+                      {linkLoading ? (<><div className="spinner" /> Linking…</>) : (<>Link device <ArrowUpRight size={15} /></>)}
+                    </button>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="scroll-area">
-        {/* LAVA HERO */}
-        <LavaHero totalEarned={account.total_usd.toFixed(2)} nodesOnline={account.devices.filter(d => d.status === "online").length} />
+        {/* PEAQ BADGE — network trust indicator */}
+        <div className="peaq-strip">
+          <div className="peaq-badge">
+            <span className="peaq-badge-dot" />
+            Live on peaq · Mainnet
+          </div>
+        </div>
 
-        {/* BALANCE */}
-        <div className="balance-split">
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="bal-card">
-            <div className="bal-label">$EXRA EARNED</div>
-            <div className="bal-val accent">{account.total_exra.toFixed(2)}</div>
-            <div className="bal-sub">≈ ${account.total_usd.toFixed(2)} USD</div>
+        {/* HERO with bento-ticker */}
+        <LavaHero
+          totalEarned={account.total_usd.toFixed(2)}
+          nodesOnline={onlineCount}
+          exraPrice={account.total_usd > 0 ? account.total_exra / account.total_usd : 1.5}
+          dailyRate={account.total_usd > 0 ? account.total_usd / 30 : 0}
+          rank={account.telegram_id % 10000}
+        />
+
+        {/* PRIMARY CTA ROW — Withdraw is the star, Refresh/Add are satellites */}
+        <div className="primary-cta-row">
+          <button
+            className="cta-primary"
+            onClick={() => { haptic("medium"); setShowWithdraw(true) }}
+            disabled={account.total_usd < 1}
+          >
+            <ArrowUpRight size={17} strokeWidth={2.4} />
+            Withdraw ${account.total_usd.toFixed(2)}
+          </button>
+          <button className="cta-icon-btn" onClick={handleRefresh} aria-label="Refresh">
+            <RefreshCw size={16} strokeWidth={2.2} />
+          </button>
+          <button className="cta-icon-btn" onClick={() => { haptic("light"); setShowLinkDevice(true) }} aria-label="Add device">
+            <Plus size={18} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        {/* BENTO BALANCE */}
+        <div className="bento">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.1 }}
+            className="bal-card accent"
+          >
+            <div className="bal-head">
+              <span className="bal-label">$EXRA earned</span>
+            </div>
+            <div className="bal-val neon tnum">{account.total_exra.toFixed(2)}</div>
+            <div className="bal-sub">all-time</div>
+            <Sparkline seed={`earned-${account.telegram_id}`} color="#67e8f9" />
           </motion.div>
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }} className="bal-card">
-            <div className="bal-label">WITHDRAWABLE</div>
-            <div className="bal-val">${account.total_usd.toFixed(2)}</div>
-            <div className="bal-sub">ready to withdraw</div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.18 }}
+            className="bal-card accent-violet"
+          >
+            <div className="bal-head">
+              <span className="bal-label">Withdrawable</span>
+            </div>
+            <div className="bal-val violet tnum">${account.total_usd.toFixed(2)}</div>
+            <div className="bal-sub">ready to claim</div>
+            <Sparkline seed={`usd-${account.telegram_id}`} color="#a78bfa" />
           </motion.div>
         </div>
 
-        {/* EPOCH BAR */}
+        {/* EPOCH */}
         {epoch && (
-          <div style={{ margin: "0 16px 4px", padding: "12px 16px", background: "var(--surface)", borderRadius: "14px", border: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{epoch.epoch_name}</span>
-              <span style={{ fontSize: "11px", color: "var(--exra)", fontFamily: "monospace" }}>
+          <div className="epoch-bar">
+            <div className="epoch-head">
+              <span className="epoch-name">{epoch.epoch_name}</span>
+              <span className="epoch-remaining tnum">
                 {epoch.days_remaining > 0 ? `${epoch.days_remaining}d left` : "∞"}
               </span>
             </div>
-            <div style={{ height: "3px", background: "#1a1a16", borderRadius: "2px" }}>
-              <div style={{ height: "100%", width: `${Math.min(epoch.progress_pct || 0, 100)}%`, background: "#c8f03c", borderRadius: "2px", transition: "width 0.5s" }} />
+            <div className="epoch-track">
+              <div className="epoch-fill" style={{ width: `${Math.min(epoch.progress_pct || 0, 100)}%` }} />
             </div>
           </div>
         )}
 
-        {/* QUICK ACTIONS */}
-        <div className="quick-actions">
-          <motion.div whileTap={{ scale: 0.95 }} className="qa-card" onClick={authenticate}>
-            <div className="qa-icon" style={{ background: "rgba(200,240,60,0.1)", border: "1px solid rgba(200,240,60,0.2)" }}>
-              <RefreshCw size={18} color="#c8f03c" />
-            </div>
-            <div className="qa-label">Refresh</div>
-          </motion.div>
-          <motion.div whileTap={{ scale: 0.95 }} className="qa-card" onClick={() => { WebApp.HapticFeedback.impactOccurred("medium"); setShowWithdraw(true) }}>
-            <div className="qa-icon" style={{ background: "rgba(168,154,255,0.1)", border: "1px solid rgba(168,154,255,0.2)" }}>
-              <ArrowUpRight size={18} color="#a89aff" />
-            </div>
-            <div className="qa-label">Withdraw</div>
-          </motion.div>
-          <motion.div whileTap={{ scale: 0.95 }} className="qa-card" onClick={() => setShowLinkDevice(true)}>
-            <div className="qa-icon" style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.2)" }}>
-              <Plus size={18} color="#4ade80" />
-            </div>
-            <div className="qa-label">Add Device</div>
-          </motion.div>
-        </div>
-
         {/* DEVICES */}
         <section className="section">
-          <div className="section-header">
-            <span className="section-title">MY DEVICES</span>
-            <span className="section-action" onClick={authenticate} style={{ fontSize: "11px", color: "var(--ink-muted)", cursor: "pointer" }}>refresh</span>
+          <div className="section-head">
+            <span className="section-title">My devices</span>
+            <span className="section-action" onClick={handleRefresh}>refresh</span>
           </div>
+
           {account.devices.length === 0 && (
-            <div style={{ textAlign: "center", padding: "32px 16px", color: "var(--ink-muted)", fontSize: "13px" }}>
-              No devices connected yet.{"\n"}
-              <button onClick={() => setShowLinkDevice(true)} style={{ marginTop: "12px", background: "none", border: "1px solid var(--border)", color: "var(--exra)", padding: "8px 20px", borderRadius: "10px", cursor: "pointer", fontSize: "12px" }}>
-                + Add your first device
-              </button>
+            <div className="empty-state">
+              <div className="empty-state-icon"><Plus size={22} strokeWidth={2} /></div>
+              <div>No devices connected yet.</div>
+              <div style={{ marginTop: 14 }}>
+                <button className="btn-secondary" onClick={() => { haptic("light"); setShowLinkDevice(true) }}>
+                  <Plus size={14} /> Add your first device
+                </button>
+              </div>
             </div>
           )}
-          {account.devices.map(device => (
-            <div key={device.device_id} className="device-row">
-              <div className="device-icon">
-                {device.device_type?.toLowerCase().includes("phone") ? (
-                  <Smartphone size={18} color="#c8f03c" />
-                ) : (
-                  <Monitor size={18} color="#a89aff" />
-                )}
-              </div>
-              <div className="device-info">
-                <div className="device-name">{device.device_id.substring(0, 12)}… · {device.country || "??"}</div>
-                <div className="device-meta">{device.device_type || "unknown"}</div>
-              </div>
-              <div className="device-right" style={{ textAlign: "right" }}>
-                <div className="device-status" style={{ background: device.status === "online" ? "#c8f03c" : "#3a3a30", marginLeft: "auto", marginBottom: "4px" }} />
-                <div style={{ color: "#c8f03c", fontSize: "13px", fontWeight: 500 }}>${device.balance_usd.toFixed(2)}</div>
-                <div style={{ fontSize: "10px", color: "var(--ink-muted)" }}>{device.exra_earned.toFixed(1)} EXRA</div>
-              </div>
-            </div>
-          ))}
+
+          {account.devices.map((device, i) => {
+            const { Icon, variant } = deviceIconFor(device.device_type)
+            const sparkColor = variant === "cyan" ? "#67e8f9" : variant === "violet" ? "#a78bfa" : "#10b981"
+            const online = device.status === "online"
+            return (
+              <motion.div
+                key={device.device_id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.05 * i }}
+                className="device-row"
+              >
+                <div className={`device-icon ${variant}`}>
+                  <Icon size={17} strokeWidth={2.1} />
+                </div>
+                <div className="device-info">
+                  <div className="device-name">{device.device_id.substring(0, 10)}…</div>
+                  <div className="device-meta">
+                    <span className={`device-status ${online ? "online" : "offline"}`} />
+                    {device.device_type || "unknown"} · {device.country || "??"}
+                  </div>
+                </div>
+                <Sparkline seed={device.device_id} color={sparkColor} />
+                <div className="device-right">
+                  <div className="device-balance tnum">${device.balance_usd.toFixed(2)}</div>
+                  <div className="device-earned tnum">{device.exra_earned.toFixed(1)} $EXRA</div>
+                </div>
+              </motion.div>
+            )
+          })}
         </section>
+      </div>
+
+      {/* TOASTS */}
+      <div className="toast-wrap">
+        <AnimatePresence>
+          {toasts.map(t => (
+            <motion.div
+              key={t.id}
+              className={`toast ${t.kind}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10, transition: { duration: 0.2 } }}
+              transition={{ type: "spring", damping: 28, stiffness: 400 }}
+            >
+              <div className="toast-icon">
+                {t.kind === "success" && <Check size={14} strokeWidth={2.6} />}
+                {t.kind === "error" && <AlertCircle size={14} strokeWidth={2.4} />}
+                {t.kind === "info" && <Zap size={14} strokeWidth={2.4} />}
+              </div>
+              {t.text}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   )
