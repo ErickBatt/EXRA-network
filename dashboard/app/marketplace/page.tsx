@@ -2,6 +2,27 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  LayoutGrid,
+  Globe2,
+  Activity,
+  Wallet,
+  CreditCard,
+  ArrowLeft,
+  ShieldCheck,
+  LogIn,
+  Search,
+  RefreshCw,
+  Plus,
+  Copy,
+  X,
+  ArrowRight,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  Zap,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { fetchJson } from '@/lib/api';
 import {
@@ -63,6 +84,8 @@ type Offer = {
   settled_exra: number;
 };
 
+type ToastMsg = { id: number; kind: 'success' | 'error' | 'info'; text: string };
+
 export default function MarketplacePage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'nodes' | 'sessions' | 'topup' | 'peaq'>('overview');
   const [user, setUser] = useState<any>(null);
@@ -84,12 +107,18 @@ export default function MarketplacePage() {
   // Access card or expands ProxyGuide. Keeping it out of state by default
   // means a passive XSS payload cannot scrape it on page load.
   const [revealedApiKey, setRevealedApiKey] = useState<string>('');
+  const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
-    const router = useRouter();
+  const router = useRouter();
 
-    useEffect(() => {
+  const pushToast = (kind: ToastMsg['kind'], text: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, kind, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+  };
+
+  useEffect(() => {
     const init = async () => {
-      // Load public data without requiring login
       fetchNodes();
       fetchStats();
 
@@ -223,8 +252,9 @@ export default function MarketplacePage() {
         })
       });
       fetchOffers();
+      pushToast('success', 'Offer created');
     } catch (e) {
-      alert('Failed to create offer: ' + e);
+      pushToast('error', `Failed to create offer: ${e}`);
     }
   };
 
@@ -235,8 +265,9 @@ export default function MarketplacePage() {
       fetchOffers();
       fetchSessions();
       setActiveTab('sessions');
+      pushToast('success', 'Offer assigned — session starting');
     } catch (e) {
-      alert('Failed to assign offer: ' + e);
+      pushToast('error', `Failed to assign offer: ${e}`);
     }
   };
 
@@ -251,10 +282,11 @@ export default function MarketplacePage() {
       const newBuyer = await buyerFetch<BuyerProfile>('/api/buyer/me');
       setBuyer(newBuyer);
       setTopupSuccess(true);
+      pushToast('success', `Balance topped up by $${topupAmount.toFixed(2)}`);
       setTimeout(() => setTopupSuccess(false), 3000);
     } catch (e) {
       console.error(e);
-      alert('Top up failed. Is the server running?');
+      pushToast('error', 'Top up failed. Is the server running?');
     } finally {
       setLoading(false);
     }
@@ -269,8 +301,9 @@ export default function MarketplacePage() {
       });
       setSelectedNode(null);
       setActiveTab('sessions');
+      pushToast('success', 'Session started');
     } catch (e) {
-      alert('Failed to start session: ' + e);
+      pushToast('error', `Failed to start session: ${e}`);
     }
   };
 
@@ -279,8 +312,9 @@ export default function MarketplacePage() {
     try {
       await buyerFetch(`/api/session/${sessionId}/end`, { method: 'POST' });
       fetchSessions();
+      pushToast('info', 'Session stopped');
     } catch (e) {
-      alert('Failed to end session: ' + e);
+      pushToast('error', `Failed to end session: ${e}`);
     }
   };
 
@@ -297,9 +331,9 @@ export default function MarketplacePage() {
     try {
       const k = await ensureApiKeyRevealed();
       await navigator.clipboard.writeText(k);
-      alert('API key copied to clipboard');
+      pushToast('success', 'API key copied to clipboard');
     } catch (e) {
-      alert('Failed to reveal API key: ' + e);
+      pushToast('error', 'Failed to reveal API key: ' + e);
     }
   };
 
@@ -314,7 +348,7 @@ export default function MarketplacePage() {
   if (loading && !buyer) {
     return (
       <div className="marketplace-root" style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spinner" style={{ width: '40px', height: '40px' }}></div>
+        <div className="spinner" style={{ width: '36px', height: '36px', borderWidth: '3px' }}></div>
       </div>
     );
   }
@@ -327,36 +361,36 @@ export default function MarketplacePage() {
 
         <div className="sidebar-section">marketplace</div>
         <div className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/><rect x="8" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/><rect x="2" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/><rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/></svg>
+          <LayoutGrid size={15} strokeWidth={1.8} />
           Overview
         </div>
         <div className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => setActiveTab('nodes')}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" strokeWidth="1.2"/><circle cx="7.5" cy="7.5" r="2" fill="currentColor"/></svg>
+          <Globe2 size={15} strokeWidth={1.8} />
           Browse Nodes
           <span className="nav-badge">{nodes.length}</span>
         </div>
         <div className={`nav-item ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="2" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.2"/><path d="M5 7.5h5M5 5h5M5 10h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+          <Activity size={15} strokeWidth={1.8} />
           Sessions
           <span className="nav-badge blue">{sessions.filter(s => s.active).length}</span>
         </div>
 
         <div className={`nav-item ${activeTab === 'peaq' ? 'active' : ''}`} onClick={() => setActiveTab('peaq')}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5l5.5 3v6l-5.5 3-5.5-3v-6l5.5-3z" stroke="currentColor" strokeWidth="1.1"/><path d="M7.5 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z" stroke="currentColor" strokeWidth="1.1"/><path d="M7.5 8.8v2.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+          <Wallet size={15} strokeWidth={1.8} />
           Peaq Network
         </div>
 
         <div className="sidebar-section">account</div>
         <div className={`nav-item ${activeTab === 'topup' ? 'active' : ''}`} onClick={() => setActiveTab('topup')}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="4" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M5 4V3a2.5 2.5 0 015 0v1" stroke="currentColor" strokeWidth="1.2"/><path d="M7.5 8v1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          <CreditCard size={15} strokeWidth={1.8} />
           Top Up
         </div>
         <Link className="nav-item" href="/">
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1L1 8h2v6h4v-4h1v4h4V8h2L7.5 1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
+          <ArrowLeft size={15} strokeWidth={1.8} />
           Back to site
         </Link>
         <Link className="nav-item" href="/admin">
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5l5.5 3v6l-5.5 3-5.5-3v-6l5.5-3z" stroke="currentColor" strokeWidth="1.1"/><path d="M7.5 5.2a1.8 1.8 0 100 3.6 1.8 1.8 0 000-3.6z" stroke="currentColor" strokeWidth="1.1"/><path d="M7.5 8.8v2.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+          <ShieldCheck size={15} strokeWidth={1.8} />
           Admin Console
         </Link>
 
@@ -364,14 +398,16 @@ export default function MarketplacePage() {
           {buyer ? (
             <div className="buyer-info">
               <div className="buyer-avatar">{buyer.email.substring(0, 2).toUpperCase()}</div>
-              <div>
-                <div className="buyer-name">{buyer.email.split('@')[0]}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="buyer-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {buyer.email.split('@')[0]}
+                </div>
                 <div className="buyer-balance">${buyer.balance_usd.toFixed(2)}</div>
               </div>
             </div>
           ) : (
-            <Link href="/auth" className="nav-item" style={{ justifyContent: 'center', color: 'var(--accent)' }}>
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M5 7.5h8M10 5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M8 2H3a1 1 0 00-1 1v9a1 1 0 001 1h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            <Link href="/auth" className="nav-item" style={{ justifyContent: 'center', color: 'var(--neon)', padding: '10px' }}>
+              <LogIn size={15} strokeWidth={1.8} />
               Sign in
             </Link>
           )}
@@ -387,14 +423,18 @@ export default function MarketplacePage() {
             {buyer ? (
               <>
                 <div className="topbar-balance">
-                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="#c8f03c" strokeWidth="1.2"/><path d="M6.5 4v3l2 1" stroke="#c8f03c" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                  Balance:
+                  <Zap size={13} strokeWidth={2} color="#22d3ee" />
+                  Balance
                   <span className="topbar-balance-val">${buyer.balance_usd.toFixed(2)}</span>
                 </div>
-                <button className="btn-topup-main" onClick={() => setActiveTab('topup')}>+ Top Up</button>
+                <button className="btn-topup-main" onClick={() => setActiveTab('topup')}>
+                  <Plus size={14} strokeWidth={2.4} /> Top Up
+                </button>
               </>
             ) : (
-              <Link href="/auth" className="btn-topup-main" style={{ textDecoration: 'none' }}>Sign in →</Link>
+              <Link href="/auth" className="btn-topup-main">
+                Sign in <ArrowRight size={14} strokeWidth={2.4} />
+              </Link>
             )}
           </div>
         </div>
@@ -427,37 +467,40 @@ export default function MarketplacePage() {
           {/* TAB CONTENT */}
           {activeTab === 'overview' && (
             <div className="dashboard-overview">
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ fontSize: '11px', color: '#5a5850', fontFamily: 'monospace', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.1em' }}>live node map</div>
+              <div>
+                <div style={{ fontSize: '10.5px', color: 'var(--ink-dim)', fontFamily: "'Geist Mono', monospace", textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.12em', fontWeight: 500 }}>
+                  live node map
+                </div>
                 <LiveMap nodes={nodes} height={260} />
               </div>
 
               <div className="overview-hero">
                 <div className="hero-content">
-                  <h1>Decentralized Bandwidth on Demand</h1>
-                  <p>Access high-quality residential and mobile proxies across {stats.countries} countries.</p>
+                  <h1>Decentralized bandwidth on demand</h1>
+                  <p>Access high-quality residential and mobile proxies across {stats.countries} countries. Pay per GB, settle on-chain.</p>
                   <div className="hero-actions">
-                    <button className="btn-hero-primary" onClick={() => setActiveTab('nodes')}>Browse Marketplace</button>
-                    <button className="btn-hero-secondary" onClick={() => setActiveTab('topup')}>Get Credits</button>
+                    <button className="btn-hero-primary" onClick={() => setActiveTab('nodes')}>
+                      Browse marketplace <ArrowRight size={14} strokeWidth={2.4} />
+                    </button>
+                    <button className="btn-hero-secondary" onClick={() => setActiveTab('topup')}>Get credits</button>
                   </div>
                 </div>
                 <div className="hero-visual">
-                   <div className="world-map-mock">
-                      {/* Decorative World Map Mockup */}
-                      <div className="map-dot" style={{ top: '30%', left: '40%' }}></div>
-                      <div className="map-dot" style={{ top: '60%', left: '20%' }}></div>
-                      <div className="map-dot" style={{ top: '50%', left: '70%' }}></div>
-                      <div className="map-line" style={{ top: '30%', left: '40%', width: '100px', transform: 'rotate(20deg)' }}></div>
-                   </div>
+                  <div className="world-map-mock">
+                    <div className="map-dot" style={{ top: '30%', left: '40%' }}></div>
+                    <div className="map-dot" style={{ top: '60%', left: '20%' }}></div>
+                    <div className="map-dot" style={{ top: '50%', left: '70%' }}></div>
+                    <div className="map-line" style={{ top: '30%', left: '40%', width: '100px', transform: 'rotate(20deg)' }}></div>
+                  </div>
                 </div>
               </div>
 
               <div className="overview-secondary">
-                <div className="table-wrap api-settings-card">
-                  <div className="table-header"><span className="table-header-title">Developer Access</span></div>
+                <div className="table-wrap">
+                  <div className="table-header"><span className="table-header-title">Developer access</span></div>
                   <div className="card-body-dash">
                     <div className="api-key-row">
-                      <div className="api-label">Your API Token</div>
+                      <div className="api-label">Your API token</div>
                       <div className="api-val-wrap">
                         <code className="api-key-code">
                           {revealedApiKey || '••••••••••••••••  (hidden)'}
@@ -474,19 +517,19 @@ export default function MarketplacePage() {
                     <div className="api-hint">Use this token as a password for proxy authentication or server-to-server API calls.</div>
                   </div>
                 </div>
-                <div className="table-wrap api-settings-card">
-                  <div className="table-header"><span className="table-header-title">Create Offer</span></div>
+                <div className="table-wrap">
+                  <div className="table-header"><span className="table-header-title">Create offer</span></div>
                   <div className="card-body-dash">
                     <div className="api-label">Country</div>
-                    <div className="search-box-dash" style={{ maxWidth: '100%', marginBottom: '10px' }}>
+                    <div className="search-box-dash" style={{ minWidth: 0, marginBottom: 12 }}>
                       <input type="text" value={offerCountry} onChange={(e) => setOfferCountry(e.target.value.toUpperCase())} />
                     </div>
                     <div className="api-label">Target GB</div>
-                    <div className="search-box-dash" style={{ maxWidth: '100%', marginBottom: '10px' }}>
+                    <div className="search-box-dash" style={{ minWidth: 0, marginBottom: 12 }}>
                       <input type="number" value={offerTargetGb} onChange={(e) => setOfferTargetGb(parseFloat(e.target.value) || 0)} />
                     </div>
-                    <div className="api-label">Max Price (EXRA/GB)</div>
-                    <div className="search-box-dash" style={{ maxWidth: '100%', marginBottom: '12px' }}>
+                    <div className="api-label">Max price (EXRA/GB)</div>
+                    <div className="search-box-dash" style={{ minWidth: 0, marginBottom: 14 }}>
                       <input type="number" value={offerMaxPrice} onChange={(e) => setOfferMaxPrice(parseFloat(e.target.value) || 0)} />
                     </div>
                     {(() => {
@@ -507,11 +550,11 @@ export default function MarketplacePage() {
                     })()}
                   </div>
                 </div>
-                
-                <div className="table-wrap active-sessions-card">
+
+                <div className="table-wrap">
                   <div className="table-header">
-                    <span className="table-header-title">Live Sessions</span>
-                    <Link href="#" onClick={() => setActiveTab('sessions')} className="header-link">View all</Link>
+                    <span className="table-header-title">Live sessions</span>
+                    <Link href="#" onClick={(e) => { e.preventDefault(); setActiveTab('sessions'); }} className="header-link">View all →</Link>
                   </div>
                   <div className="card-body-dash">
                     {sessions.filter(s => s.active).length === 0 ? (
@@ -519,22 +562,22 @@ export default function MarketplacePage() {
                     ) : (
                       sessions.filter(s => s.active).slice(0, 1).map(s => (
                         <div key={s.id} className="mini-session-stat">
-                           <div className="ms-meta">
-                              <span className="ms-title">Session {s.id.substring(0,6)}</span>
-                              <span className="ms-usage">{(s.bytes_used / 1e6).toFixed(2)} MB</span>
-                           </div>
-                           <UsageChart isActive={true} />
+                          <div className="ms-meta">
+                            <span className="ms-title">Session {s.id.substring(0, 6)}</span>
+                            <span className="ms-usage">{(s.bytes_used / 1e6).toFixed(2)} MB</span>
+                          </div>
+                          <UsageChart isActive={true} />
                         </div>
                       ))
                     )}
                   </div>
                 </div>
-                <div className="table-wrap api-settings-card">
+                <div className="table-wrap">
                   <div className="table-header"><span className="table-header-title">Operations</span></div>
                   <div className="card-body-dash">
                     <div className="api-hint">Operational actions moved to the dedicated admin console with role checks and audit logging.</div>
-                    <Link href="/admin" className="btn-hero-primary" style={{ display: 'inline-block', textDecoration: 'none', marginTop: '10px' }}>
-                      Open Admin Console
+                    <Link href="/admin" className="btn-hero-primary" style={{ display: 'inline-flex', marginTop: 14 }}>
+                      Open admin console <ArrowRight size={14} strokeWidth={2.4} />
                     </Link>
                   </div>
                 </div>
@@ -547,7 +590,7 @@ export default function MarketplacePage() {
               <div className="filters-bar">
                 <div className="filters-left">
                   <div className="search-box-dash">
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="5.5" cy="5.5" r="4" stroke="#5a5850" strokeWidth="1.2"/><path d="M9 9l2.5 2.5" stroke="#5a5850" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                    <Search size={13} strokeWidth={2} color="#71717a" />
                     <select
                       value={countryFilter}
                       onChange={(e) => {
@@ -564,14 +607,14 @@ export default function MarketplacePage() {
                   </div>
                 </div>
                 <button className="filter-btn-dash" onClick={fetchNodes}>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6l5-5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  <RefreshCw size={12} strokeWidth={2} />
                   refresh
                 </button>
               </div>
 
               <div className="table-wrap">
                 <div className="table-header">
-                  <span className="table-header-title">Available Nodes</span>
+                  <span className="table-header-title">Available nodes</span>
                   <div className="live-indicator"><span className="live-dot"></span>live data</div>
                 </div>
                 <table>
@@ -593,7 +636,7 @@ export default function MarketplacePage() {
                         <td>
                           <div className="node-id">
                             <div className="node-avatar">{node.id.substring(0, 2).toUpperCase()}</div>
-                            <span className="node-did">{node.id.substring(0, 8)}...</span>
+                            <span className="node-did">{node.id.substring(0, 8)}…</span>
                           </div>
                         </td>
                         <td>
@@ -605,23 +648,32 @@ export default function MarketplacePage() {
                         <td><span className="device-pill">{node.device_type}</span></td>
                         <td>
                           <div className="speed-bar-wrap">
-                            <div className="speed-bar"><div className="speed-fill" style={{ width: `${Math.min(100, (node.bandwidth_mbps / 100) * 100)}%` }}></div></div>
+                            <div className="speed-bar">
+                              <div className="speed-fill" style={{ width: `${Math.min(100, (node.bandwidth_mbps / 100) * 100)}%` }}></div>
+                            </div>
                             <span className="speed-val">{node.bandwidth_mbps} Mbps</span>
                           </div>
                         </td>
                         <td><span className={`tier-badge ${node.device_tier === 'compute' ? 'tier-2' : 'tier-1'}`}>{node.device_tier}</span></td>
                         <td><span className="status-online"><span className="status-dot"></span>{node.status}</span></td>
                         <td><span className="price-cell">${(node.price_per_gb ?? 1.5).toFixed(2)}/GB{node.auto_price ? ' (auto)' : ''}</span></td>
-                        <td><button className="btn-buy-node" onClick={() => { if (!buyer) { router.push('/auth'); return; } setSelectedNode(node); }}>buy</button></td>
+                        <td>
+                          <button className="btn-buy-node" onClick={() => { if (!buyer) { router.push('/auth'); return; } setSelectedNode(node); }}>
+                            buy
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="table-wrap" style={{ marginTop: '16px' }}>
+
+              <div className="table-wrap">
                 <div className="table-header">
                   <span className="table-header-title">Offers</span>
-                  <button className="filter-btn-dash" onClick={() => fetchOffers()}>refresh</button>
+                  <button className="filter-btn-dash" onClick={() => fetchOffers()}>
+                    <RefreshCw size={12} strokeWidth={2} /> refresh
+                  </button>
                 </div>
                 <table>
                   <thead>
@@ -637,11 +689,11 @@ export default function MarketplacePage() {
                   <tbody>
                     {offers.map((o) => (
                       <tr key={o.id}>
-                        <td>{o.id.substring(0, 8)}...</td>
-                        <td>{o.country || 'ANY'}</td>
-                        <td>{o.target_gb} GB</td>
-                        <td>{o.max_price_per_gb.toFixed(2)} EXRA</td>
-                        <td>{o.status}</td>
+                        <td><span className="node-did">{o.id.substring(0, 8)}…</span></td>
+                        <td><span className="country-name">{o.country || 'ANY'}</span></td>
+                        <td><span className="price-cell">{o.target_gb} GB</span></td>
+                        <td><span className="price-cell">{o.max_price_per_gb.toFixed(2)} EXRA</span></td>
+                        <td><span className={`tier-badge ${o.status === 'pending' ? 'tier-1' : 'tier-2'}`}>{o.status}</span></td>
                         <td>
                           {o.status === 'pending' ? (
                             <button className="btn-buy-node" onClick={() => assignOffer(o.id)}>assign</button>
@@ -662,28 +714,28 @@ export default function MarketplacePage() {
                 <div className={`session-card-refined ${session.active ? 'active' : ''}`} key={session.id}>
                   <div className="scr-header">
                     <div className="scr-node">
-                       <div className="scr-node-avatar">{session.node_id.substring(0,2).toUpperCase()}</div>
-                       <div className="scr-node-info">
-                          <div className="scr-node-id">Node: {session.node_id.substring(0, 8)}</div>
-                          <div className="scr-node-status">{session.active ? 'Streaming' : 'Completed'}</div>
-                       </div>
+                      <div className="scr-node-avatar">{session.node_id.substring(0, 2).toUpperCase()}</div>
+                      <div className="scr-node-info">
+                        <div className="scr-node-id">Node: {session.node_id.substring(0, 8)}</div>
+                        <div className="scr-node-status">{session.active ? 'streaming' : 'completed'}</div>
+                      </div>
                     </div>
                     {session.active && <button className="btn-stop-mini" onClick={() => endSession(session.id)}>Stop</button>}
                   </div>
 
                   <div className="scr-body">
                     <div className="scr-stat">
-                       <span className="scr-label">Usage</span>
-                       <span className="scr-val">{(session.bytes_used / 1e6).toFixed(2)} MB</span>
+                      <span className="scr-label">Usage</span>
+                      <span className="scr-val">{(session.bytes_used / 1e6).toFixed(2)} MB</span>
                     </div>
                     <div className="scr-stat">
-                       <span className="scr-label">Cost</span>
-                       <span className="scr-val accent">${session.cost_usd.toFixed(4)}</span>
+                      <span className="scr-label">Cost</span>
+                      <span className="scr-val accent">${session.cost_usd.toFixed(4)}</span>
                     </div>
                     {session.active && (
-                       <div className="scr-chart">
-                          <UsageChart isActive={true} />
-                       </div>
+                      <div className="scr-chart">
+                        <UsageChart isActive={true} />
+                      </div>
                     )}
                   </div>
 
@@ -708,50 +760,56 @@ export default function MarketplacePage() {
           {activeTab === 'topup' && (
             <div style={{ maxWidth: '480px' }}>
               <div className="table-wrap">
-                <div className="table-header"><span className="table-header-title">Top Up Balance</span></div>
-                <div style={{ padding: '24px' }}>
+                <div className="table-header"><span className="table-header-title">Top up balance</span></div>
+                <div style={{ padding: '22px' }}>
                   <div className="modal-row">
                     <span className="modal-row-label">current balance</span>
-                    <span className="modal-row-val accent">${buyer?.balance_usd.toFixed(2)}</span>
+                    <span className="modal-row-val accent">${buyer?.balance_usd.toFixed(2) ?? '—'}</span>
                   </div>
-                  <div style={{ marginTop: '20px', marginBottom: '8px', fontSize: '12px', color: 'var(--ink3)', fontFamily: "'JetBrains Mono', monospace", textTransform: 'uppercase' }}>amount (USD)</div>
-                  <div className="search-box-dash" style={{ maxWidth: '100%', marginBottom: '16px' }}>
-                    <span style={{ color: 'var(--accent)' }}>$</span>
-                    <input type="number" placeholder="10.00" value={topupAmount} onChange={(e) => setTopupAmount(parseFloat(e.target.value) || 0)} />
+                  <div className="api-label" style={{ marginTop: 18, marginBottom: 8 }}>amount (USD)</div>
+                  <div className="search-box-dash" style={{ minWidth: 0, marginBottom: 16 }}>
+                    <span style={{ color: 'var(--neon-bright)', fontFamily: 'Geist Mono, monospace' }}>$</span>
+                    <input type="number" placeholder="10.00" value={topupAmount || ''} onChange={(e) => setTopupAmount(parseFloat(e.target.value) || 0)} />
                   </div>
-                  <button className="btn-modal-confirm" style={{ width: '100%', padding: '14px' }} onClick={handleTopUp} disabled={loading || topupAmount <= 0}>
-                    {loading ? <div className="spinner"></div> : 'add funds →'}
+                  <button className="btn-modal-confirm" style={{ width: '100%', padding: '12px' }} onClick={handleTopUp} disabled={loading || topupAmount <= 0 || !buyer}>
+                    {loading ? <div className="spinner"></div> : <>Add funds <ArrowRight size={14} strokeWidth={2.4} /></>}
                   </button>
-                  {topupSuccess && <div style={{ color: 'var(--green)', fontSize: '12px', marginTop: '10px', textAlign: 'center' }}>Balance updated successfully!</div>}
+                  {topupSuccess && (
+                    <div style={{ color: 'var(--success)', fontSize: '12px', marginTop: 12, textAlign: 'center', fontFamily: 'Geist Mono, monospace' }}>
+                      Balance updated successfully
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'peaq' && (
-            <div className="tab-content" style={{ maxWidth: '800px' }}>
-              <div className="stats-row-dash" style={{ marginBottom: '24px' }}>
+            <div className="tab-content" style={{ maxWidth: '920px' }}>
+              <div className="stats-row-dash" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: '18px' }}>
                 <div className="stat-card-dash">
                   <div className="stat-label-dash">network status</div>
-                  <div className="stat-val-dash" style={{ color: 'var(--green)' }}>online</div>
+                  <div className="stat-val-dash" style={{ color: 'var(--success)' }}>online</div>
                   <div className="stat-sub-dash">Peaq L1 Mainnet</div>
                 </div>
                 <div className="stat-card-dash">
                   <div className="stat-label-dash">exra staking</div>
-                  <div className="stat-val-dash">100</div>
+                  <div className="stat-val-dash"><span>100</span></div>
                   <div className="stat-sub-dash">EXRA required</div>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '24px', alignItems: 'start' }}>
-                <div className="table-wrap" style={{ padding: '24px' }}>
-                  <div style={{ marginBottom: '16px' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--ink)', marginBottom: '4px' }}>Identity & Wallet</h3>
-                    <p style={{ fontSize: '11px', color: 'var(--ink3)' }}>Connect your Substrate wallet to manage DID and staking.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '18px', alignItems: 'start' }}>
+                <div className="table-wrap">
+                  <div className="table-header"><span className="table-header-title">Identity &amp; wallet</span></div>
+                  <div className="card-body-dash">
+                    <p style={{ fontSize: '12px', color: 'var(--ink-dim)', lineHeight: 1.55, marginBottom: 14 }}>
+                      Connect your Substrate wallet to manage DID and staking.
+                    </p>
+                    <WalletSelector />
                   </div>
-                  <WalletSelector />
                 </div>
-                
+
                 <StakingPanel />
               </div>
             </div>
@@ -760,41 +818,82 @@ export default function MarketplacePage() {
       </main>
 
       {/* BUY MODAL */}
-      {selectedNode && (
-        <div className="modal-overlay">
-          <div className="modal-dash">
-            <div className="modal-header">
-              <span className="modal-title">Start Session</span>
-              <button className="modal-close" onClick={() => setSelectedNode(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="modal-node-info">
-                <div className="modal-node-avatar">{getFlag(selectedNode.country)}</div>
-                <div>
-                  <div className="modal-node-country">{selectedNode.country}</div>
-                  <div className="modal-node-meta">{selectedNode.device_type} · {selectedNode.bandwidth_mbps} Mbps</div>
+      <AnimatePresence>
+        {selectedNode && (
+          <motion.div
+            className="modal-overlay"
+            onClick={() => setSelectedNode(null)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <motion.div
+              className="modal-dash"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ y: 16, opacity: 0, scale: 0.97 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 10, opacity: 0, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            >
+              <div className="modal-header">
+                <span className="modal-title">Start session</span>
+                <button className="modal-close" onClick={() => setSelectedNode(null)}>
+                  <X size={14} strokeWidth={2} />
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="modal-node-info">
+                  <div className="modal-node-avatar">{getFlag(selectedNode.country)}</div>
+                  <div>
+                    <div className="modal-node-country">{selectedNode.country}</div>
+                    <div className="modal-node-meta">{selectedNode.device_type} · {selectedNode.bandwidth_mbps} Mbps</div>
+                  </div>
+                  <div className="modal-node-price">
+                    <div className="modal-price-val">${(selectedNode.price_per_gb ?? 1.5).toFixed(2)}</div>
+                    <div className="modal-price-unit">per GB</div>
+                  </div>
                 </div>
-                <div className="modal-node-price">
-                  <div className="modal-price-val">${(selectedNode.price_per_gb ?? 1.5).toFixed(2)}</div>
-                  <div className="modal-price-unit" style={{ fontSize: '11px', color: 'var(--ink3)' }}>per GB</div>
+                <div className="modal-row">
+                  <span className="modal-row-label">node ID</span>
+                  <span className="modal-row-val">{selectedNode.id}</span>
+                </div>
+                <div className="modal-row">
+                  <span className="modal-row-label">your balance</span>
+                  <span className="modal-row-val accent">${buyer?.balance_usd.toFixed(2)}</span>
                 </div>
               </div>
-              <div className="modal-row">
-                <span className="modal-row-label">node ID</span>
-                <span className="modal-row-val">{selectedNode.id}</span>
+              <div className="modal-footer">
+                <button className="btn-modal-cancel" onClick={() => setSelectedNode(null)}>Cancel</button>
+                <button className="btn-modal-confirm" onClick={() => startSession(selectedNode.id)}>
+                  Start session <ArrowRight size={14} strokeWidth={2.4} />
+                </button>
               </div>
-              <div className="modal-row">
-                <span className="modal-row-label">your balance</span>
-                <span className="modal-row-val accent">${buyer?.balance_usd.toFixed(2)}</span>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn-modal-cancel" onClick={() => setSelectedNode(null)}>cancel</button>
-              <button className="btn-modal-confirm" onClick={() => startSession(selectedNode.id)}>start session →</button>
-            </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* TOASTS */}
+      <div className="mp-toast-wrap" aria-live="polite">
+        <AnimatePresence>
+          {toasts.map((t) => (
+            <motion.div
+              key={t.id}
+              className={`mp-toast ${t.kind}`}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+            >
+              {t.kind === 'success' && <CheckCircle2 size={16} strokeWidth={2} color="#10b981" />}
+              {t.kind === 'error' && <AlertCircle size={16} strokeWidth={2} color="#ef4444" />}
+              {t.kind === 'info' && <Info size={16} strokeWidth={2} color="#22d3ee" />}
+              <span>{t.text}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
