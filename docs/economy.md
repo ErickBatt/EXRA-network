@@ -8,11 +8,11 @@ Canonical protocol policy is defined in `docs/PROTOCOL_ECONOMY_SPEC.md`.
 - Managed marketplace mechanics implemented: worker pricing (`price_per_gb`/`auto_price`), buyer offers, deterministic oracle assignment, and locked session price.
 - Oracle queue upgraded for production operations: retries/backoff, DLQ reason tracking, and manual retry path.
 - Instant swap safety added with circuit breaker to pause execution during abnormal volatility.
-- Smoke verification performed locally for end-to-end API path; real TON mainnet execution remains a separate production run.
+- Smoke verification performed locally for end-to-end API path; peaq on-chain execution remains controlled through oracle batch flow.
 
 ## 1. Proof of Presence (PoP) Heartbeat Model
 
-Exra is transitioning from a purely traffic-based reward generation system to a deterministic **Proof of Presence (PoP)** heartbeat model. 
+Exra uses a deterministic **Proof of Presence (PoP)** heartbeat model.
 
 Tokens are emitted continuously based on stable connection and presence in the network, independent of the actual gigabytes routed through the device. This provides a baseline passive income for all active workers.
 

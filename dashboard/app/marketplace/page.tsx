@@ -471,7 +471,7 @@ export default function MarketplacePage() {
                 <div style={{ fontSize: '10.5px', color: 'var(--ink-dim)', fontFamily: "'Geist Mono', monospace", textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.12em', fontWeight: 500 }}>
                   live node map
                 </div>
-                <LiveMap nodes={nodes} height={260} />
+                <LiveMap nodes={nodes} height={420} />
               </div>
 
               <div className="overview-hero">

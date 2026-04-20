@@ -1,0 +1,1415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>EXRA — Node Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#07090b;
+    --bg2:#0b0e11;
+    --surface:#11161b;
+    --surface2:#161c23;
+    --border:rgba(220,235,245,0.07);
+    --border2:rgba(220,235,245,0.14);
+    --ink:#e8f1f5;
+    --ink2:#9aa8b2;
+    --ink3:#5b6872;
+    --cyan:#5fe3ff;
+    --cyan2:#8aeaff;
+    --cyan-dim:rgba(95,227,255,0.10);
+    --cyan-wash:rgba(95,227,255,0.04);
+    --teal:#2fb8d4;
+    --lilac:#a896ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  body{background:
+    radial-gradient(1200px 600px at 70% -10%, rgba(95,227,255,0.05), transparent 60%),
+    radial-gradient(800px 500px at 10% 90%, rgba(168,150,255,0.04), transparent 60%),
+    var(--bg);
+    min-height:100vh;
+  }
+
+  /* Nav */
+  .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:18px 40px;background:rgba(7,9,11,0.7);backdrop-filter:blur(18px);border-bottom:0.5px solid var(--border)}
+  .logo{font-family:'Syne',sans-serif;font-weight:800;font-size:22px;letter-spacing:-0.04em}
+  .logo .d{color:var(--cyan);font-family:'JetBrains Mono',monospace;font-weight:400;font-size:11px;letter-spacing:0.3em;margin-left:10px;opacity:0.7;vertical-align:middle}
+  .navlinks{display:flex;gap:28px;font-size:13px;color:var(--ink2)}
+  .navlinks a{color:inherit;text-decoration:none;transition:color .2s}
+  .navlinks a.active{color:var(--cyan)}
+  .navlinks a:hover{color:var(--ink)}
+  .navcta{display:flex;gap:10px;align-items:center}
+  .btn-g{font-size:12px;color:var(--ink2);background:transparent;border:0.5px solid var(--border2);border-radius:100px;padding:7px 16px;text-decoration:none}
+  .btn-c{font-size:12px;color:#06141a;background:linear-gradient(180deg,var(--cyan2),var(--cyan));border:none;border-radius:100px;padding:8px 18px;font-weight:600;font-family:'Instrument Sans';cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+
+  /* Page header */
+  .page{max-width:1360px;margin:0 auto;padding:28px 40px 80px}
+  .crumb{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:16px}
+  .crumb .dot{width:3px;height:3px;border-radius:50%;background:var(--ink3)}
+  .crumb b{color:var(--cyan);font-weight:400}
+  .ph{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;margin-bottom:22px;flex-wrap:wrap}
+  .ph h1{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(40px,5vw,64px);letter-spacing:-0.045em;line-height:0.98}
+  .ph h1 em{font-style:italic;color:var(--cyan);font-weight:700}
+  .ph-sub{font-size:15px;color:var(--ink2);max-width:420px;line-height:1.55;margin-top:8px}
+  .variant-switch{display:inline-flex;background:var(--surface);border:0.5px solid var(--border);border-radius:100px;padding:4px}
+  .variant-switch button{font-family:'JetBrains Mono',monospace;font-size:11px;background:transparent;border:none;color:var(--ink2);padding:8px 18px;border-radius:100px;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;transition:all .2s}
+  .variant-switch button.on{background:var(--cyan-dim);color:var(--cyan);box-shadow:inset 0 0 0 0.5px rgba(95,227,255,0.28)}
+
+  /* Top strip: live stats */
+  .strip{display:grid;grid-template-columns:repeat(5,1fr);border:0.5px solid var(--border);border-radius:16px;overflow:hidden;background:linear-gradient(180deg,var(--surface),var(--bg2));margin-bottom:20px}
+  .strip .cell{padding:18px 22px;border-right:0.5px solid var(--border);position:relative}
+  .strip .cell:last-child{border-right:none}
+  .strip .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.14em;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .strip .pulse{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);animation:pd 1.6s ease-in-out infinite}
+  .strip .val{font-family:'Syne',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.03em}
+  .strip .val .u{font-size:13px;color:var(--ink3);font-family:'JetBrains Mono',monospace;margin-left:4px;font-weight:400}
+  .strip .delta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);margin-top:4px}
+  .strip .delta.n{color:#ff7b8a}
+  @keyframes pd{0%,100%{opacity:1}50%{opacity:0.35}}
+
+  /* Map card */
+  .mapcard{position:relative;border:0.5px solid var(--border);border-radius:18px;overflow:hidden;background:radial-gradient(1200px 700px at 50% 40%,#0d1418 0%,#07090b 70%);margin-bottom:22px}
+  .mapcard .chrome{display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:0.5px solid var(--border);background:rgba(255,255,255,0.012)}
+  .chrome-l{display:flex;align-items:center;gap:14px}
+  .chrome-l .t{font-size:14px;color:var(--ink);font-weight:500}
+  .chrome-l .live{display:inline-flex;align-items:center;gap:6px;background:var(--cyan-dim);border:0.5px solid rgba(95,227,255,0.22);border-radius:100px;padding:4px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);text-transform:uppercase;letter-spacing:0.1em}
+  .chrome-l .live .dot{width:5px;height:5px;border-radius:50%;background:var(--cyan);animation:pd 1.6s ease-in-out infinite;box-shadow:0 0 8px var(--cyan)}
+  .chrome-r{display:flex;gap:8px;align-items:center}
+  .seg{display:inline-flex;background:var(--bg2);border:0.5px solid var(--border);border-radius:100px;padding:3px}
+  .seg button{font-family:'JetBrains Mono',monospace;font-size:10px;background:transparent;border:none;color:var(--ink3);padding:6px 14px;border-radius:100px;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;transition:all .15s}
+  .seg button.on{background:var(--surface2);color:var(--ink)}
+
+  .mapstage{position:relative;height:640px;overflow:hidden;cursor:grab}
+  .mapstage:active{cursor:grabbing}
+
+  /* latitude meridians */
+  .grid{position:absolute;inset:0;pointer-events:none;opacity:0.18}
+
+  /* Atmosphere fresnel glow */
+  .atmos{position:absolute;inset:0;pointer-events:none;z-index:2;
+    background:
+      radial-gradient(closest-side at 50% 50%, transparent 58%, rgba(95,227,255,0.05) 66%, rgba(95,227,255,0.18) 70%, rgba(95,227,255,0.05) 74%, transparent 82%);
+    mix-blend-mode:screen;
+    filter:blur(2px);
+  }
+  .atmos::before{content:"";position:absolute;inset:0;
+    background:radial-gradient(closest-side at 50% 50%, transparent 62%, rgba(138,234,255,0.32) 67%, transparent 70%);
+    mix-blend-mode:screen;
+    filter:blur(6px);
+  }
+
+  /* Sticky city labels layer */
+  .labels{position:absolute;inset:0;pointer-events:none;z-index:3}
+  .labels .lbl-line{stroke:rgba(95,227,255,0.55);stroke-width:0.5;fill:none}
+  .labels .lbl-dot{fill:#5fe3ff}
+  .labels .lbl-g text{font-family:'JetBrains Mono',monospace;fill:#e8f1f5;text-transform:uppercase;letter-spacing:0.12em}
+  .labels .lbl-city{font-size:10px;font-weight:500}
+  .labels .lbl-bw{font-size:9px;fill:#5fe3ff;letter-spacing:0.06em}
+  .labels .lbl-underline{stroke:rgba(95,227,255,0.35);stroke-width:0.5}
+
+  /* Connect-mode banner */
+  .connect-banner{position:absolute;top:16px;left:50%;transform:translateX(-50%) translateY(-8px);display:none;align-items:center;gap:14px;background:rgba(11,14,17,0.94);border:0.5px solid rgba(95,227,255,0.32);border-radius:100px;padding:8px 8px 8px 18px;backdrop-filter:blur(10px);z-index:6;box-shadow:0 10px 40px rgba(0,0,0,0.6),0 0 0 0.5px rgba(95,227,255,0.08),inset 0 0 30px rgba(95,227,255,0.04);animation:cbIn .3s ease forwards}
+  .connect-banner.on{display:flex}
+  @keyframes cbIn{from{opacity:0;transform:translateX(-50%) translateY(-16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+  .connect-banner .cb-l{display:flex;align-items:center;gap:12px}
+  .connect-banner .cb-ico{width:26px;height:26px;border-radius:50%;background:var(--cyan-dim);border:0.5px solid rgba(95,227,255,0.32);color:var(--cyan);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:14px}
+  .connect-banner .cb-t{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);text-transform:uppercase;letter-spacing:0.14em;margin-bottom:2px}
+  .connect-banner .cb-s{font-size:12px;color:var(--ink2)}
+  .connect-banner .cb-s b{color:var(--ink);font-weight:500}
+  .connect-banner .cb-x{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink2);background:var(--surface);border:0.5px solid var(--border2);border-radius:100px;padding:6px 14px;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase}
+  .connect-banner .cb-x:hover{color:var(--ink);border-color:var(--cyan)}
+
+  /* User-location marker */
+  .me-marker{position:absolute;pointer-events:none;z-index:4;transform:translate(-50%,-50%)}
+  .me-marker .ring{width:14px;height:14px;border:1px solid var(--lilac);border-radius:50%;box-shadow:0 0 12px rgba(168,150,255,0.55);animation:meRing 2.6s ease-in-out infinite}
+  .me-marker .core{position:absolute;inset:4px;border-radius:50%;background:var(--lilac);box-shadow:0 0 10px var(--lilac)}
+  .me-marker .lbl{position:absolute;left:20px;top:50%;transform:translateY(-50%);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--lilac);letter-spacing:0.1em;text-transform:uppercase;white-space:nowrap;background:rgba(11,14,17,0.82);border:0.5px solid rgba(168,150,255,0.28);border-radius:4px;padding:3px 7px}
+  @keyframes meRing{0%,100%{box-shadow:0 0 12px rgba(168,150,255,0.55);transform:scale(1)}50%{box-shadow:0 0 22px rgba(168,150,255,0.85);transform:scale(1.18)}}
+
+  /* Connection readout */
+  .connrd{position:absolute;right:22px;bottom:22px;width:320px;background:rgba(11,14,17,0.96);border:0.5px solid rgba(95,227,255,0.28);border-radius:14px;padding:16px;backdrop-filter:blur(10px);box-shadow:0 20px 60px rgba(0,0,0,0.7),inset 0 0 40px rgba(95,227,255,0.03);z-index:7;display:none;animation:crIn .25s ease forwards}
+  .connrd.on{display:block}
+  @keyframes crIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  .cr-hd{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .cr-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:pd 1.6s ease-in-out infinite}
+  .cr-t{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);text-transform:uppercase;letter-spacing:0.14em;flex:1}
+  .cr-x{background:transparent;border:none;color:var(--ink3);font-size:18px;cursor:pointer;width:20px;height:20px;line-height:1;padding:0}
+  .cr-x:hover{color:var(--ink)}
+  .cr-path{display:flex;align-items:baseline;gap:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:20px;letter-spacing:-0.02em;margin-bottom:14px;padding-bottom:12px;border-bottom:0.5px solid var(--border)}
+  .cr-arrow{color:var(--cyan);font-family:'JetBrains Mono',monospace;font-size:15px}
+  .cr-b{color:var(--cyan)}
+  .cr-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-bottom:14px}
+  .cr-k{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.14em;margin-bottom:3px}
+  .cr-v{font-family:'Syne',sans-serif;font-weight:700;font-size:17px;letter-spacing:-0.02em}
+  .cr-cta{width:100%;font-family:'Instrument Sans';font-size:12px;font-weight:600;color:#06141a;background:linear-gradient(180deg,var(--cyan2),var(--cyan));border:none;border-radius:100px;padding:10px 14px;cursor:pointer;transition:all .15s}
+  .cr-cta:hover{box-shadow:0 6px 20px rgba(95,227,255,0.3);transform:translateY(-1px)}
+
+  /* Tooltip */
+  .tip{position:absolute;pointer-events:none;transform:translate(-50%,calc(-100% - 14px));background:rgba(11,14,17,0.96);border:0.5px solid rgba(95,227,255,0.22);border-radius:12px;padding:14px 16px;min-width:220px;backdrop-filter:blur(8px);box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 0 0.5px rgba(95,227,255,0.06);opacity:0;transition:opacity .15s;z-index:5}
+  .tip.show{opacity:1}
+  .tip::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%) rotate(45deg);width:9px;height:9px;background:rgba(11,14,17,0.96);border-right:0.5px solid rgba(95,227,255,0.22);border-bottom:0.5px solid rgba(95,227,255,0.22)}
+  .tip .tc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .tip .tc-city{font-family:'Syne',sans-serif;font-weight:700;font-size:17px;letter-spacing:-0.02em}
+  .tip .tc-cc{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);background:var(--cyan-dim);border:0.5px solid rgba(95,227,255,0.2);border-radius:4px;padding:2px 6px;letter-spacing:0.1em}
+  .tip .tbw{font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:var(--cyan);letter-spacing:-0.03em;line-height:1}
+  .tip .tbw .u{font-size:13px;color:var(--ink3);font-family:'JetBrains Mono',monospace;margin-left:4px;font-weight:400}
+  .tip .trow{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border);font-size:12px}
+  .tip .trow+.trow{padding-top:6px;margin-top:6px;border-top:none}
+  .tip .trow .k{color:var(--ink3);font-family:'JetBrains Mono',monospace;font-size:11px}
+  .tip .trow .v{color:var(--ink)}
+  .tip .bars{display:flex;gap:2px;margin-top:10px}
+  .tip .bar{flex:1;height:4px;background:var(--surface);border-radius:2px;overflow:hidden}
+  .tip .bar>i{display:block;height:100%;background:var(--cyan)}
+
+  /* Legend */
+  .legend{position:absolute;bottom:20px;left:20px;display:flex;flex-direction:column;gap:8px;pointer-events:none;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.1em}
+  .legend .lrow{display:flex;align-items:center;gap:10px}
+  .legend .sw{width:10px;height:10px;border-radius:50%}
+  .legend .sw.s1{background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+  .legend .sw.s2{background:var(--cyan);opacity:0.5}
+  .legend .sw.s3{background:var(--cyan);opacity:0.25}
+
+  .coord{position:absolute;top:18px;right:22px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink3);letter-spacing:0.08em;text-align:right;line-height:1.7}
+
+  /* Region pill overlays */
+  .region-pill{position:absolute;pointer-events:none;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink2);background:rgba(11,14,17,0.82);border:0.5px solid var(--border2);border-radius:6px;padding:4px 8px;letter-spacing:0.06em;white-space:nowrap;transform:translate(8px,-50%);backdrop-filter:blur(6px)}
+  .region-pill b{color:var(--cyan);font-weight:400}
+
+  /* Table */
+  .tablecard{border:0.5px solid var(--border);border-radius:18px;overflow:hidden;background:var(--bg2)}
+  .tablehd{display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:0.5px solid var(--border);background:rgba(255,255,255,0.012);gap:16px;flex-wrap:wrap}
+  .tablehd .tt{font-family:'Syne',sans-serif;font-weight:700;font-size:18px;letter-spacing:-0.02em}
+  .tablehd .tt .c{color:var(--ink3);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:400;margin-left:10px}
+  .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .search{display:flex;align-items:center;gap:6px;background:var(--surface);border:0.5px solid var(--border);border-radius:100px;padding:6px 12px}
+  .search input{background:transparent;border:none;outline:none;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:12px;width:140px}
+  .search svg{opacity:0.5}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink2);background:var(--surface);border:0.5px solid var(--border);border-radius:100px;padding:6px 14px;cursor:pointer;transition:all .15s;letter-spacing:0.04em}
+  .chip.on{background:var(--cyan-dim);color:var(--cyan);border-color:rgba(95,227,255,0.22)}
+  .chip:hover{color:var(--ink)}
+
+  table{width:100%;border-collapse:collapse}
+  th{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:400;color:var(--ink3);text-transform:uppercase;letter-spacing:0.12em;text-align:left;padding:12px 24px;background:rgba(255,255,255,0.015);border-bottom:0.5px solid var(--border)}
+  th.r{text-align:right}
+  td{padding:16px 24px;font-size:13px;border-bottom:0.5px solid var(--border);color:var(--ink)}
+  td.r{text-align:right}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:rgba(95,227,255,0.025)}
+  tr.sel td{background:rgba(95,227,255,0.055)}
+  .cc{display:flex;align-items:center;gap:12px}
+  .flagdot{width:26px;height:26px;border-radius:8px;background:var(--surface);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);font-weight:500}
+  .cc .cn{font-weight:500;letter-spacing:-0.01em}
+  .cc .ct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink3);margin-top:2px;letter-spacing:0.04em;text-transform:uppercase}
+  .bw{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;letter-spacing:-0.02em;color:var(--ink)}
+  .bw .u{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink3);font-weight:400;margin-left:3px}
+  .mini{display:flex;align-items:center;gap:6px}
+  .mini .spark{display:flex;gap:2px;align-items:flex-end;height:16px}
+  .mini .spark i{width:3px;background:var(--cyan);opacity:0.6;border-radius:1px}
+  .mini .pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan)}
+  .lv{display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan)}
+  .lv .d{width:5px;height:5px;border-radius:50%;background:var(--cyan);box-shadow:0 0 6px var(--cyan);animation:pd 1.6s ease-in-out infinite}
+  .pr{font-family:'JetBrains Mono',monospace;color:var(--cyan);font-size:12px}
+  .rbtn{font-family:'Instrument Sans';font-size:11px;font-weight:600;color:#06141a;background:var(--cyan);border:none;border-radius:100px;padding:6px 14px;cursor:pointer;transition:all .15s}
+  .rbtn:hover{background:var(--cyan2);transform:translateY(-1px)}
+  .rbtn.ghost{background:transparent;color:var(--ink2);border:0.5px solid var(--border2)}
+  .rbtn.ghost:hover{color:var(--ink);border-color:var(--cyan)}
+
+  /* Tweaks panel */
+  .tweaks{position:fixed;right:24px;bottom:24px;z-index:200;background:rgba(11,14,17,0.96);border:0.5px solid rgba(95,227,255,0.22);border-radius:16px;padding:18px;min-width:280px;backdrop-filter:blur(14px);box-shadow:0 30px 80px rgba(0,0,0,0.6);display:none}
+  .tweaks.on{display:block}
+  .tweaks .th{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .tweaks .tg{display:flex;gap:6px;background:var(--surface);border-radius:10px;padding:4px}
+  .tweaks .tg button{flex:1;font-family:'JetBrains Mono',monospace;font-size:11px;background:transparent;border:none;color:var(--ink2);padding:7px;border-radius:7px;cursor:pointer;letter-spacing:0.06em;text-transform:uppercase}
+  .tweaks .tg button.on{background:var(--cyan-dim);color:var(--cyan)}
+  .tweaks .row+.row{margin-top:14px}
+  .tweaks .rl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px}
+
+  /* Bold variant */
+  .bold .mapstage{height:720px}
+
+  /* Orbit halo */
+  .halo{position:absolute;inset:0;pointer-events:none}
+
+  /* Connection arcs layer */
+  .arcs{position:absolute;inset:0;pointer-events:none}
+
+  /* Edge vignette */
+  .mapstage::before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(7,9,11,0.9) 100%);z-index:3}
+
+  /* Scanline subtle */
+  .scan{position:absolute;inset:0;pointer-events:none;opacity:0.4;background-image:repeating-linear-gradient(180deg,transparent 0px,transparent 3px,rgba(95,227,255,0.02) 3px,rgba(95,227,255,0.02) 4px);mix-blend-mode:screen}
+
+  footer{margin-top:60px;padding:28px 40px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink3)}
+  footer a{color:inherit;text-decoration:none}
+  footer a:hover{color:var(--cyan)}
+
+  @media(max-width:900px){
+    .strip{grid-template-columns:repeat(2,1fr)}
+    .strip .cell:nth-child(5){grid-column:span 2}
+    .ph{flex-direction:column;align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:22px">
+    <div class="logo">EXRA<span class="d">DEPIN</span></div>
+    <div class="navlinks" style="margin-left:20px">
+      <a href="#">Network</a>
+      <a href="#" class="active">Map</a>
+      <a href="#">How it works</a>
+      <a href="#">Earn</a>
+      <a href="#">Tokenomics</a>
+      <a href="#">Docs</a>
+    </div>
+  </div>
+  <div class="navcta">
+    <a href="#" class="btn-g">Sign in</a>
+    <a href="#" class="btn-c">Launch app ↗</a>
+  </div>
+</nav>
+
+<main class="page" id="page">
+  <div class="crumb">
+    <span>Marketplace</span><span class="dot"></span>
+    <span>Bandwidth</span><span class="dot"></span>
+    <b>Node Map</b>
+  </div>
+
+  <div class="ph">
+    <div>
+      <h1>Pick a region.<br/><em>Watch it light up.</em></h1>
+      <p class="ph-sub">Live residential bandwidth from <b>60+ countries</b>, settled on-chain. Hover any node to see throughput, uptime and price.</p>
+    </div>
+    <div class="variant-switch" id="variant-switch">
+      <button class="on" data-v="conservative">◦ Conservative</button>
+      <button data-v="bold">◉ Bold</button>
+    </div>
+  </div>
+
+  <!-- Live metric strip -->
+  <section class="strip" id="strip"></section>
+
+  <!-- Map -->
+  <section class="mapcard" id="mapcard">
+    <div class="chrome">
+      <div class="chrome-l">
+        <div class="t">Global node map</div>
+        <div class="live"><span class="dot"></span>Live · peaq mainnet</div>
+      </div>
+      <div class="chrome-r">
+        <div class="seg" id="seg-mode">
+          <button class="on" data-mm="explore">◦ Explore</button>
+          <button data-mm="connect">⇢ Connect</button>
+        </div>
+        <div class="seg" id="seg-metric">
+          <button class="on" data-m="bandwidth">Bandwidth</button>
+          <button data-m="nodes">Nodes</button>
+          <button data-m="price">$/GB</button>
+        </div>
+        <div class="seg" id="seg-rot">
+          <button data-r="pause">❚❚</button>
+          <button class="on" data-r="play">▶</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="mapstage" id="mapstage">
+      <div class="coord" id="coord">LAT 0.00°<br/>LON 0.00°<br/><span style="color:var(--cyan)">● 48,212 nodes</span></div>
+
+      <svg class="grid" id="gridlines"></svg>
+
+      <!-- Canvas for globe -->
+      <canvas id="globe" width="1400" height="640"></canvas>
+
+      <!-- Atmosphere fresnel -->
+      <div class="atmos" id="atmos"></div>
+
+      <svg class="arcs" id="arcs"></svg>
+
+      <!-- Sticky city labels for top hubs -->
+      <svg class="labels" id="labels"></svg>
+
+      <!-- User location marker (visible in connect mode) -->
+      <div class="me-marker" id="meMarker" style="display:none">
+        <div class="ring"></div>
+        <div class="core"></div>
+        <div class="lbl">You · Berlin</div>
+      </div>
+
+      <div class="scan"></div>
+
+      <!-- Connect-mode banner -->
+      <div class="connect-banner" id="connectBanner">
+        <div class="cb-l">
+          <div class="cb-ico">⇢</div>
+          <div>
+            <div class="cb-t">Connect mode</div>
+            <div class="cb-s">Click any node to trace a route from <b id="userLoc">Berlin, DE</b></div>
+          </div>
+        </div>
+        <button class="cb-x" id="cbExit">Exit</button>
+      </div>
+
+      <!-- Connection readout (shown after node click in connect mode) -->
+      <div class="connrd" id="connrd">
+        <div class="cr-hd">
+          <span class="cr-dot"></span>
+          <span class="cr-t">Route established</span>
+          <button class="cr-x" id="crClose">×</button>
+        </div>
+        <div class="cr-path">
+          <span class="cr-a" id="crFrom">Berlin</span>
+          <span class="cr-arrow">→</span>
+          <span class="cr-b" id="crTo">Singapore</span>
+        </div>
+        <div class="cr-grid">
+          <div><div class="cr-k">Latency</div><div class="cr-v" id="crLat">—</div></div>
+          <div><div class="cr-k">Hops</div><div class="cr-v" id="crHop">—</div></div>
+          <div><div class="cr-k">Distance</div><div class="cr-v" id="crDist">—</div></div>
+          <div><div class="cr-k">Price / GB</div><div class="cr-v" id="crPrice">—</div></div>
+        </div>
+        <button class="cr-cta" id="crRent">Rent this route →</button>
+      </div>
+
+      <!-- Tooltip -->
+      <div class="tip" id="tip">
+        <div class="tc-head">
+          <div class="tc-city" id="tipCity">Jakarta</div>
+          <div class="tc-cc" id="tipCC">ID</div>
+        </div>
+        <div class="tbw"><span id="tipBw">2,481</span><span class="u">Mbps avail</span></div>
+        <div class="bars" id="tipBars"></div>
+        <div class="trow"><span class="k">Active nodes</span><span class="v" id="tipNodes">2,481</span></div>
+        <div class="trow"><span class="k">Avg uptime</span><span class="v" id="tipUp">99.2%</span></div>
+        <div class="trow"><span class="k">Price / GB</span><span class="v" id="tipPr" style="color:var(--cyan);font-family:'JetBrains Mono',monospace">0.041 $EXRA</span></div>
+      </div>
+
+      <div class="legend">
+        <div class="lrow"><span class="sw s1"></span>&gt; 1 Gbps available</div>
+        <div class="lrow"><span class="sw s2"></span>100 Mbps – 1 Gbps</div>
+        <div class="lrow"><span class="sw s3"></span>&lt; 100 Mbps</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Table -->
+  <section class="tablecard">
+    <div class="tablehd">
+      <div class="tt">Nodes available <span class="c" id="nodecount">— 248 regions</span></div>
+      <div class="filters">
+        <div class="search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="qinput" placeholder="Search city, country…" />
+        </div>
+        <button class="chip on" data-f="all">All</button>
+        <button class="chip" data-f="gt1gbps">&gt; 1 Gbps</button>
+        <button class="chip" data-f="low">&lt; 0.04 $EXRA/GB</button>
+        <button class="chip" data-f="hi">99%+ uptime</button>
+        <button class="chip" data-f="asia">Asia</button>
+        <button class="chip" data-f="eu">Europe</button>
+        <button class="chip" data-f="am">Americas</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="nodetable">
+        <thead>
+          <tr>
+            <th>City / Country</th>
+            <th class="r">Available bandwidth</th>
+            <th class="r">Nodes</th>
+            <th class="r">Uptime</th>
+            <th class="r">Price / GB</th>
+            <th class="r">Status</th>
+            <th class="r"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div>© 2026 EXRA · running on <a href="#" style="color:var(--cyan)">peaq L1</a></div>
+    <div style="display:flex;gap:20px">
+      <a href="#">Docs</a>
+      <a href="#">Status</a>
+      <a href="#">GitHub</a>
+    </div>
+  </footer>
+</main>
+
+<!-- Tweaks panel -->
+<div class="tweaks" id="tweaks">
+  <div class="th"><span>◈ Tweaks</span><span id="tweakclose" style="cursor:pointer;color:var(--ink3)">✕</span></div>
+  <div class="row">
+    <div class="rl">Map style</div>
+    <div class="tg" id="style-tg">
+      <button class="on" data-s="dots">Dots</button>
+      <button data-s="grid">Grid</button>
+      <button data-s="hex">Hex</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="rl">Variant</div>
+    <div class="tg" id="var-tg">
+      <button class="on" data-v="conservative">Conservative</button>
+      <button data-v="bold">Bold</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="rl">Rotation</div>
+    <div class="tg" id="rot-tg">
+      <button class="on" data-r="slow">Slow</button>
+      <button data-r="med">Med</button>
+      <button data-r="fast">Fast</button>
+      <button data-r="off">Off</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =================== DATA =================== */
+// [city, country, lat, lng, cc, bandwidth Mbps, nodes, uptime %, price $EXRA/GB, region]
+const NODES = [
+  ["Jakarta","Indonesia",-6.21,106.85,"ID",3480,3520,98.9,0.038,"asia"],
+  ["Singapore","Singapore",1.35,103.82,"SG",4820,1892,99.6,0.052,"asia"],
+  ["Tokyo","Japan",35.68,139.69,"JP",5120,2140,99.8,0.061,"asia"],
+  ["Seoul","South Korea",37.57,126.98,"KR",4610,1780,99.4,0.058,"asia"],
+  ["Mumbai","India",19.08,72.88,"IN",2140,4210,98.1,0.031,"asia"],
+  ["Manila","Philippines",14.60,120.98,"PH",1820,2481,97.8,0.029,"asia"],
+  ["Bangkok","Thailand",13.76,100.50,"TH",2460,1320,98.6,0.033,"asia"],
+  ["Hong Kong","Hong Kong",22.32,114.17,"HK",3920,1104,99.3,0.056,"asia"],
+  ["Ho Chi Minh","Vietnam",10.82,106.63,"VN",1640,1860,97.4,0.028,"asia"],
+  ["Karachi","Pakistan",24.86,67.00,"PK",980,1220,96.8,0.024,"asia"],
+
+  ["London","United Kingdom",51.51,-0.13,"GB",4310,2230,99.7,0.064,"eu"],
+  ["Frankfurt","Germany",50.11,8.68,"DE",5610,3120,99.8,0.062,"eu"],
+  ["Paris","France",48.86,2.35,"FR",3920,1680,99.5,0.058,"eu"],
+  ["Amsterdam","Netherlands",52.37,4.90,"NL",5240,2080,99.7,0.061,"eu"],
+  ["Madrid","Spain",40.42,-3.70,"ES",3120,1210,99.3,0.054,"eu"],
+  ["Warsaw","Poland",52.23,21.01,"PL",2610,1480,99.2,0.048,"eu"],
+  ["Istanbul","Turkey",41.01,28.98,"TR",1920,1910,98.4,0.036,"eu"],
+  ["Moscow","Russia",55.76,37.62,"RU",2410,2810,98.1,0.034,"eu"],
+  ["Stockholm","Sweden",59.33,18.07,"SE",4120,680,99.8,0.068,"eu"],
+  ["Milan","Italy",45.46,9.19,"IT",2820,1120,99.1,0.052,"eu"],
+
+  ["New York","United States",40.71,-74.01,"US",5640,4120,99.7,0.064,"am"],
+  ["San Francisco","United States",37.77,-122.42,"US",5220,2810,99.8,0.071,"am"],
+  ["Chicago","United States",41.88,-87.63,"US",3820,1920,99.4,0.058,"am"],
+  ["Dallas","United States",32.78,-96.80,"US",3110,1610,99.3,0.054,"am"],
+  ["Toronto","Canada",43.65,-79.38,"CA",3420,1380,99.5,0.056,"am"],
+  ["Mexico City","Mexico",19.43,-99.13,"MX",1810,1620,98.2,0.031,"am"],
+  ["São Paulo","Brazil",-23.55,-46.63,"BR",2140,1800,98.4,0.034,"am"],
+  ["Buenos Aires","Argentina",-34.60,-58.38,"AR",1410,920,97.8,0.029,"am"],
+  ["Bogotá","Colombia",4.71,-74.07,"CO",1120,740,97.6,0.027,"am"],
+  ["Lima","Peru",-12.05,-77.04,"PE",980,560,97.4,0.026,"am"],
+
+  ["Lagos","Nigeria",6.52,3.38,"NG",820,1420,96.2,0.022,"af"],
+  ["Nairobi","Kenya",-1.29,36.82,"KE",710,840,96.8,0.024,"af"],
+  ["Cape Town","South Africa",-33.92,18.42,"ZA",1640,680,98.4,0.032,"af"],
+  ["Cairo","Egypt",30.04,31.24,"EG",1120,1080,97.2,0.028,"af"],
+  ["Casablanca","Morocco",33.57,-7.60,"MA",920,410,97.6,0.030,"af"],
+
+  ["Sydney","Australia",-33.87,151.21,"AU",3810,1120,99.4,0.058,"oc"],
+  ["Melbourne","Australia",-37.81,144.96,"AU",3210,780,99.3,0.056,"oc"],
+  ["Auckland","New Zealand",-36.85,174.76,"NZ",2640,320,99.2,0.060,"oc"],
+
+  ["Dubai","UAE",25.20,55.27,"AE",4210,1680,99.5,0.068,"asia"],
+  ["Riyadh","Saudi Arabia",24.71,46.67,"SA",2810,920,99.1,0.054,"asia"],
+  ["Tel Aviv","Israel",32.09,34.78,"IL",3910,560,99.6,0.062,"asia"],
+];
+
+// Hand-authored low-res continent outlines, embedded inline so it works offline.
+// Each entry = array of [lng,lat] points tracing a schematic landmass.
+const CONTINENT_OUTLINES = {
+  NA: [[-168,66],[-156,71],[-141,70],[-128,70],[-114,73],[-95,74],[-82,74],[-62,82],[-60,76],[-68,70],[-64,60],[-55,52],[-53,46],[-66,44],[-68,41],[-74,40],[-77,35],[-81,25],[-87,30],[-94,29],[-97,26],[-98,21],[-106,23],[-110,23],[-115,27],[-117,33],[-123,38],[-125,47],[-132,55],[-145,60],[-155,58],[-163,60],[-166,63],[-168,66]],
+  CA: [[-92,16],[-88,16],[-85,11],[-82,8],[-77,8],[-79,13],[-87,17],[-92,16]],
+  SA: [[-81,12],[-76,10],[-72,12],[-68,12],[-62,8],[-57,6],[-52,5],[-49,0],[-48,-3],[-44,-3],[-38,-6],[-35,-9],[-38,-15],[-40,-22],[-48,-28],[-54,-35],[-58,-39],[-65,-42],[-68,-52],[-72,-54],[-74,-45],[-73,-38],[-71,-30],[-70,-20],[-72,-14],[-78,-8],[-81,-5],[-80,0],[-78,5],[-81,12]],
+  GR: [[-45,60],[-35,60],[-25,67],[-18,70],[-20,77],[-35,82],[-55,82],[-60,76],[-55,68],[-50,62],[-45,60]],
+  AF: [[-17,21],[-10,27],[-5,35],[9,37],[11,33],[22,32],[32,31],[35,24],[38,18],[42,12],[51,12],[49,5],[43,-1],[41,-10],[40,-15],[38,-22],[32,-29],[20,-35],[18,-33],[13,-23],[10,-17],[8,-5],[9,4],[4,6],[-4,5],[-8,4],[-13,8],[-17,15],[-17,21]],
+  MG: [[43,-12],[50,-16],[50,-25],[43,-25],[43,-12]],
+  EU: [[-10,36],[-9,43],[-2,44],[-1,49],[-5,50],[2,51],[5,53],[8,54],[3,55],[6,58],[5,62],[11,64],[15,69],[23,71],[28,70],[32,66],[30,60],[28,56],[30,50],[40,52],[48,55],[55,58],[60,65],[65,68],[70,67],[66,61],[58,55],[48,46],[40,44],[30,46],[24,42],[20,40],[12,38],[8,44],[0,40],[-4,37],[-10,36]],
+  AS: [[30,46],[40,46],[50,40],[55,37],[60,30],[68,25],[72,20],[76,10],[80,8],[85,10],[90,22],[95,22],[100,14],[103,10],[106,6],[108,11],[105,20],[110,22],[117,23],[121,23],[122,30],[119,36],[121,41],[124,42],[127,42],[129,40],[130,44],[135,47],[141,52],[153,60],[163,61],[175,65],[180,66],[180,72],[150,73],[125,74],[110,75],[95,78],[75,78],[60,76],[50,72],[45,67],[40,64],[35,62],[30,58],[30,46]],
+  JP: [[129,31],[133,33],[137,35],[140,36],[141,40],[141,45],[145,44],[146,43],[142,41],[139,38],[135,34],[131,33],[129,31]],
+  ID: [[95,6],[100,2],[103,1],[107,-2],[112,-4],[118,-5],[122,-5],[128,-4],[134,-4],[140,-5],[140,-8],[135,-9],[128,-9],[120,-9],[115,-9],[110,-8],[105,-7],[100,-2],[97,4],[95,6]],
+  PH: [[120,18],[123,16],[125,11],[126,8],[125,6],[122,7],[120,14],[120,18]],
+  IN: [[68,23],[72,20],[72,15],[76,8],[80,9],[80,13],[83,17],[88,21],[90,22],[92,26],[88,26],[85,27],[78,30],[76,33],[74,34],[72,32],[68,26],[68,23]],
+  AR: [[35,30],[43,32],[48,30],[56,26],[56,22],[54,18],[49,13],[44,13],[43,17],[38,22],[35,28],[35,30]],
+  AU: [[114,-22],[118,-20],[122,-18],[130,-12],[137,-12],[142,-11],[145,-15],[148,-20],[153,-25],[153,-28],[150,-35],[146,-39],[141,-38],[134,-32],[127,-32],[117,-34],[114,-26],[114,-22]],
+  NZ: [[172,-34],[175,-37],[178,-39],[174,-41],[171,-44],[167,-46],[166,-45],[169,-43],[171,-40],[172,-37],[172,-34]],
+  UK: [[-6,50],[-3,50],[1,51],[1,53],[0,55],[-2,58],[-5,58],[-6,55],[-8,54],[-5,51],[-6,50]],
+  IC: [[-24,63],[-14,64],[-13,66],[-20,66],[-24,65],[-24,63]],
+};
+// Wrap as polygon list: each polygon is [outerRing] (no holes for our schematic outlines)
+const COUNTRY_POLYS = Object.values(CONTINENT_OUTLINES).map(r => [r]);
+let LAND_POINTS = [];
+
+function pointInRing(lng, lat, ring){
+  let inside = false;
+  for(let i=0,j=ring.length-1; i<ring.length; j=i++){
+    const [xi,yi] = ring[i], [xj,yj] = ring[j];
+    if(((yi>lat)!==(yj>lat)) && (lng < (xj-xi)*(lat-yi)/(yj-yi+1e-12)+xi)) inside = !inside;
+  }
+  return inside;
+}
+function pointInLand(lng, lat){
+  for(const poly of COUNTRY_POLYS){
+    if(pointInRing(lng, lat, poly[0])) return true;
+  }
+  return false;
+}
+// Pre-build dot-matrix once from the outlines
+(function buildLandPoints(){
+  for(let la=-58; la<=78; la+=2.5){
+    for(let lo=-178; lo<=178; lo+=3){
+      if(pointInLand(lo,la)) LAND_POINTS.push([la,lo]);
+    }
+  }
+})();
+
+/* =================== GLOBE =================== */
+const canvas = document.getElementById('globe');
+const ctx = canvas.getContext('2d');
+const stage = document.getElementById('mapstage');
+
+let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio||1, 2);
+let CX, CY, R;
+let rot = 0, rotSpeed = 0.0025;
+let rotating = true;
+let style = 'dots';
+let variant = 'conservative';
+let metric = 'bandwidth';
+let hoverIdx = -1;
+let mapMode = 'explore';       // 'explore' | 'connect'
+let connectTarget = -1;        // node index when in connect mode
+const USER = { name: 'Berlin, DE', lat: 52.52, lng: 13.40 };
+const TOP_HUBS = ['Frankfurt','Singapore','New York','Tokyo','São Paulo'];
+// Sun longitude at 'now' for day/night terminator. Offset by rotation so it tracks.
+const nowSunLng = (()=>{
+  // rough: sun longitude = -15° * (UTCHours - 12)
+  const d = new Date();
+  const h = d.getUTCHours() + d.getUTCMinutes()/60;
+  return -15 * (h - 12);
+})();
+
+function resize(){
+  const r = stage.getBoundingClientRect();
+  W = r.width; H = r.height;
+  canvas.width = Math.floor(W*DPR);
+  canvas.height = Math.floor(H*DPR);
+  canvas.style.width = W+'px';
+  canvas.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  CX = W/2; CY = H/2;
+  R = Math.min(W*0.34, H*0.48);
+  drawGrid();
+}
+window.addEventListener('resize', resize);
+
+function project(lat, lng){
+  const la = lat*Math.PI/180;
+  const lo = lng*Math.PI/180 + rot;
+  const x = Math.cos(la)*Math.sin(lo);
+  const y = -Math.sin(la);
+  const z = Math.cos(la)*Math.cos(lo);
+  return {x: CX + x*R, y: CY + y*R, z};
+}
+
+function drawGrid(){
+  // Background lat/lng grid lines on the globe, rendered in SVG so they don't flicker
+  const s = document.getElementById('gridlines');
+  const r = stage.getBoundingClientRect();
+  s.setAttribute('viewBox', `0 0 ${r.width} ${r.height}`);
+  s.setAttribute('width', r.width);
+  s.setAttribute('height', r.height);
+}
+
+function drawOrbits(){
+  // Subtle outer orbit rings
+  ctx.save();
+  ctx.translate(CX, CY);
+  ctx.strokeStyle = 'rgba(95,227,255,0.08)';
+  ctx.lineWidth = 0.6;
+  ctx.setLineDash([2,6]);
+  for(let i=0;i<3;i++){
+    ctx.beginPath();
+    ctx.ellipse(0,0,R*(1.06+i*0.04),R*(1.06+i*0.04)*0.96,0,0,Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawSphereShade(){
+  // Outer glow
+  const g = ctx.createRadialGradient(CX-R*0.2, CY-R*0.3, R*0.1, CX, CY, R*1.4);
+  g.addColorStop(0, 'rgba(95,227,255,0.08)');
+  g.addColorStop(0.5, 'rgba(95,227,255,0.02)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(CX,CY,R*1.4,0,Math.PI*2);
+  ctx.fill();
+
+  // Sphere disc
+  const g2 = ctx.createRadialGradient(CX-R*0.3, CY-R*0.4, R*0.1, CX, CY, R);
+  g2.addColorStop(0, '#0f1820');
+  g2.addColorStop(0.7, '#0a0f13');
+  g2.addColorStop(1, '#06090b');
+  ctx.fillStyle = g2;
+  ctx.beginPath();
+  ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawMeridians(){
+  ctx.save();
+  ctx.strokeStyle = 'rgba(95,227,255,0.10)';
+  ctx.lineWidth = 0.5;
+  // latitudes
+  for(let la=-60; la<=60; la+=15){
+    ctx.beginPath();
+    let first = true;
+    for(let lo=-180; lo<=180; lo+=3){
+      const p = project(la,lo);
+      if(p.z < -0.02){ first=true; continue; }
+      if(first){ ctx.moveTo(p.x,p.y); first=false; }
+      else ctx.lineTo(p.x,p.y);
+    }
+    ctx.stroke();
+  }
+  // longitudes
+  for(let lo=-180; lo<180; lo+=20){
+    ctx.beginPath();
+    let first = true;
+    for(let la=-80; la<=80; la+=3){
+      const p = project(la,lo);
+      if(p.z < -0.02){ first=true; continue; }
+      if(first){ ctx.moveTo(p.x,p.y); first=false; }
+      else ctx.lineTo(p.x,p.y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawLandFill(){
+  // Schematic country silhouettes — filled + stroked, clipped to the visible hemisphere
+  if(!COUNTRY_POLYS.length) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.clip();
+
+  for(const poly of COUNTRY_POLYS){
+    const ring = poly[0];
+    // Skip rings entirely on the far side (quick check)
+    let anyFront = false;
+    for(let i=0;i<ring.length;i+=3){
+      const p = project(ring[i][1], ring[i][0]);
+      if(p.z > -0.02){ anyFront = true; break; }
+    }
+    if(!anyFront) continue;
+
+    // Draw with sub-segment interpolation so edges curve along the globe surface
+    ctx.beginPath();
+    let started = false;
+    for(let i=0; i<ring.length; i++){
+      const [lo1,la1] = ring[i];
+      const [lo2,la2] = ring[(i+1)%ring.length];
+      // interpolate this segment in steps along great-circle-ish lerp
+      const steps = 6;
+      for(let s=0; s<steps; s++){
+        const t = s/steps;
+        // handle dateline wrap
+        let dLo = lo2 - lo1;
+        if(dLo > 180) dLo -= 360;
+        if(dLo < -180) dLo += 360;
+        const lo = lo1 + dLo*t;
+        const la = la1 + (la2-la1)*t;
+        const p = project(la,lo);
+        if(p.z < -0.02){ started = false; continue; }
+        if(!started){ ctx.moveTo(p.x,p.y); started = true; }
+        else ctx.lineTo(p.x,p.y);
+      }
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(60,100,118,0.28)';
+    ctx.fill();
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = 'rgba(138,234,255,0.42)';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawLandDots(){
+  if(!LAND_POINTS.length) return;
+  ctx.save();
+  for(const [la,lo] of LAND_POINTS){
+    const p = project(la,lo);
+    if(p.z < 0) continue;
+    const alpha = Math.max(0, Math.min(1, p.z)) * 0.6;
+    if(style === 'dots'){
+      ctx.fillStyle = `rgba(138,234,255,${alpha*0.35})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 0.9, 0, Math.PI*2);
+      ctx.fill();
+    } else if(style === 'grid'){
+      ctx.fillStyle = `rgba(138,234,255,${alpha*0.32})`;
+      ctx.fillRect(p.x-0.9, p.y-0.9, 1.8, 1.8);
+    } else if(style === 'hex'){
+      const s = 1.4;
+      ctx.fillStyle = `rgba(138,234,255,${alpha*0.32})`;
+      ctx.beginPath();
+      for(let i=0;i<6;i++){
+        const a = i*Math.PI/3;
+        const x = p.x + Math.cos(a)*s;
+        const y = p.y + Math.sin(a)*s;
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawLand(){
+  drawLandFill();   // schematic outlines always visible
+  drawLandDots();   // overlay texture varies by style
+}
+
+/* ---- Day/night terminator overlay ---- */
+function drawTerminator(){
+  // Sun direction vector (in globe coords) given sun longitude
+  const sunLo = nowSunLng * Math.PI/180 + rot;
+  // Terminator = great circle perpendicular to sun direction
+  // Sample points on the perpendicular plane, project
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.clip();
+  // darkness overlay — paint the hemisphere away from the sun
+  // For each pixel on the sphere we can't test — instead draw a gradient sweep
+  // that covers the "night" side using a linear gradient in screen-space whose
+  // direction matches the sun vector projected to screen.
+  const sx = Math.sin(sunLo), sz = Math.cos(sunLo);
+  // screen-space vector pointing from center toward sun
+  const vx = sx, vy = 0; // sun altitude ~0 (equatorial)
+  const vlen = Math.hypot(vx, vy) || 1;
+  const ux = vx/vlen, uy = vy/vlen;
+  // night is opposite direction
+  const nx = -ux, ny = -uy;
+  const g = ctx.createLinearGradient(CX - nx*R, CY - ny*R, CX + nx*R, CY + ny*R);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.45, 'rgba(0,0,0,0)');
+  g.addColorStop(0.52, 'rgba(4,8,14,0.35)');
+  g.addColorStop(0.75, 'rgba(4,8,14,0.62)');
+  g.addColorStop(1, 'rgba(2,4,8,0.78)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.fill();
+
+  // soft cyan sunlit rim on the day side
+  const g2 = ctx.createLinearGradient(CX - nx*R, CY - ny*R, CX + nx*R, CY + ny*R);
+  g2.addColorStop(0, 'rgba(138,234,255,0.10)');
+  g2.addColorStop(0.35, 'rgba(138,234,255,0.03)');
+  g2.addColorStop(0.6, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g2;
+  ctx.beginPath();
+  ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ---- Great-circle connection from USER to target ---- */
+function gcPoints(lat1, lng1, lat2, lng2, n=64){
+  // spherical slerp in 3D
+  const toV = (la, lo)=>{
+    const a = la*Math.PI/180, o = lo*Math.PI/180;
+    return [Math.cos(a)*Math.cos(o), Math.cos(a)*Math.sin(o), Math.sin(a)];
+  };
+  const toLL = ([x,y,z])=>{
+    const la = Math.asin(z)*180/Math.PI;
+    const lo = Math.atan2(y,x)*180/Math.PI;
+    return [la, lo];
+  };
+  const a = toV(lat1,lng1), b = toV(lat2,lng2);
+  const dot = Math.max(-1,Math.min(1, a[0]*b[0]+a[1]*b[1]+a[2]*b[2]));
+  const omega = Math.acos(dot);
+  const so = Math.sin(omega) || 1e-9;
+  const out = [];
+  for(let i=0;i<=n;i++){
+    const t = i/n;
+    const k1 = Math.sin((1-t)*omega)/so;
+    const k2 = Math.sin(t*omega)/so;
+    const v = [k1*a[0]+k2*b[0], k1*a[1]+k2*b[1], k1*a[2]+k2*b[2]];
+    out.push(toLL(v));
+  }
+  return out;
+}
+function haversine(lat1,lng1,lat2,lng2){
+  const R0 = 6371;
+  const dLa = (lat2-lat1)*Math.PI/180;
+  const dLo = (lng2-lng1)*Math.PI/180;
+  const la1 = lat1*Math.PI/180, la2 = lat2*Math.PI/180;
+  const a = Math.sin(dLa/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLo/2)**2;
+  return 2*R0*Math.asin(Math.sqrt(a));
+}
+function drawConnection(t){
+  if(mapMode !== 'connect' || connectTarget < 0) return;
+  const n = NODES[connectTarget];
+  const pts = gcPoints(USER.lat, USER.lng, n[2], n[3], 80);
+  // Project all points and arc them off the sphere using an altitude curve
+  const proj = pts.map((p, i)=>{
+    const x = project(p[0], p[1]);
+    const u = i/(pts.length-1);
+    // lift points off sphere a bit (altitude parabola)
+    const lift = 1 + 0.18 * Math.sin(u*Math.PI);
+    return {
+      x: CX + (x.x - CX)*lift,
+      y: CY + (x.y - CY)*lift,
+      z: x.z
+    };
+  });
+
+  ctx.save();
+  // main arc — only draw spans where z>0 (front side)
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  let drawing = false;
+  ctx.beginPath();
+  for(let i=0;i<proj.length;i++){
+    const q = proj[i];
+    if(q.z < -0.02){ drawing = false; continue; }
+    if(!drawing){ ctx.moveTo(q.x,q.y); drawing = true; }
+    else ctx.lineTo(q.x,q.y);
+  }
+  const grad = ctx.createLinearGradient(proj[0].x, proj[0].y, proj[proj.length-1].x, proj[proj.length-1].y);
+  grad.addColorStop(0, 'rgba(168,150,255,0.95)');   // user = lilac
+  grad.addColorStop(0.5, 'rgba(138,234,255,0.95)');
+  grad.addColorStop(1, 'rgba(95,227,255,0.95)');
+  ctx.strokeStyle = grad;
+  ctx.stroke();
+
+  // soft glow underneath
+  ctx.lineWidth = 5;
+  ctx.globalAlpha = 0.22;
+  ctx.strokeStyle = '#5fe3ff';
+  drawing = false;
+  ctx.beginPath();
+  for(let i=0;i<proj.length;i++){
+    const q = proj[i];
+    if(q.z < -0.02){ drawing = false; continue; }
+    if(!drawing){ ctx.moveTo(q.x,q.y); drawing = true; }
+    else ctx.lineTo(q.x,q.y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // packet along the route
+  const phase = ((t % 2200) / 2200);
+  const pi = Math.floor(phase * (proj.length-1));
+  const pt = proj[pi];
+  if(pt && pt.z > -0.02){
+    const rg = ctx.createRadialGradient(pt.x,pt.y,0,pt.x,pt.y,12);
+    rg.addColorStop(0,'rgba(255,255,255,1)');
+    rg.addColorStop(0.3,'rgba(138,234,255,0.8)');
+    rg.addColorStop(1,'rgba(95,227,255,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.arc(pt.x,pt.y,12,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(pt.x,pt.y,2.2,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---- Sticky city labels ---- */
+function drawLabels(){
+  const svg = document.getElementById('labels');
+  const r = stage.getBoundingClientRect();
+  svg.setAttribute('viewBox', `0 0 ${r.width} ${r.height}`);
+  svg.setAttribute('width', r.width);
+  svg.setAttribute('height', r.height);
+  // only label top hubs, and only if they're on the near hemisphere
+  const out = [];
+  for(const name of TOP_HUBS){
+    const idx = NODES.findIndex(n=>n[0]===name);
+    if(idx<0) continue;
+    const n = NODES[idx];
+    const p = project(n[2], n[3]);
+    if(p.z < 0.15) continue;
+    // decide side: right if on right of globe center
+    const side = p.x > CX ? 1 : -1;
+    const ox = side * 46;
+    const oy = -28;
+    const ax = p.x, ay = p.y;
+    const bx = p.x + ox, by = p.y + oy;
+    const cx = bx + side * 64, cy = by;
+    const bwLbl = n[5] >= 1000 ? (n[5]/1000).toFixed(1)+' Gbps' : n[5]+' Mbps';
+    out.push(`
+      <g class="lbl-g" opacity="${Math.min(1, (p.z-0.15)/0.3)}">
+        <circle class="lbl-dot" cx="${ax}" cy="${ay}" r="2.5"/>
+        <path class="lbl-line" d="M ${ax} ${ay} L ${bx} ${by} L ${cx} ${cy}"/>
+        <line class="lbl-underline" x1="${Math.min(bx,cx)}" y1="${cy+2}" x2="${Math.max(bx,cx)}" y2="${cy+2}"/>
+        <text class="lbl-city" x="${side>0?bx+4:cx-4}" y="${cy-3}" text-anchor="${side>0?'start':'end'}">${n[0]}</text>
+        <text class="lbl-bw" x="${side>0?bx+4:cx-4}" y="${cy+13}" text-anchor="${side>0?'start':'end'}">${bwLbl}</text>
+      </g>
+    `);
+  }
+  svg.innerHTML = out.join('');
+}
+
+/* ---- User location marker ---- */
+function updateUserMarker(){
+  const el = document.getElementById('meMarker');
+  if(!el) return;
+  if(mapMode !== 'connect'){ el.style.display='none'; return; }
+  const p = project(USER.lat, USER.lng);
+  if(p.z < -0.05){ el.style.display='none'; return; }
+  el.style.display='block';
+  el.style.opacity = Math.min(1, (p.z+0.05)/0.3);
+  el.style.left = p.x+'px';
+  el.style.top = p.y+'px';
+}
+
+// Connection rays between nodes (active on conservative variant too)
+function drawRays(t){
+  const SHOW = NODES.map((n,i)=>({n,i,p:project(n[2],n[3])})).filter(o=>o.p.z > 0.15);
+  if(SHOW.length < 2) return;
+  // pick top hubs by bandwidth
+  const hubs = [...SHOW].sort((a,b)=>b.n[5]-a.n[5]).slice(0, variant==='bold'?10:7);
+
+  ctx.save();
+  for(let i=0;i<hubs.length;i++){
+    for(let j=i+1;j<hubs.length;j++){
+      const a = hubs[i].p, b = hubs[j].p;
+      if(a.z < 0.2 || b.z < 0.2) continue;
+      const dx = b.x-a.x, dy = b.y-a.y;
+      const len = Math.hypot(dx,dy);
+      if(len < 40 || len > R*1.6) continue;
+      // curve outward away from sphere center
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      const cx = mx + (mx-CX)*0.22;
+      const cy = my + (my-CY)*0.22;
+
+      // static arc
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);
+      ctx.quadraticCurveTo(cx,cy,b.x,b.y);
+      const gr = ctx.createLinearGradient(a.x,a.y,b.x,b.y);
+      gr.addColorStop(0,'rgba(95,227,255,0.05)');
+      gr.addColorStop(0.5,'rgba(138,234,255,0.35)');
+      gr.addColorStop(1,'rgba(95,227,255,0.05)');
+      ctx.strokeStyle = gr;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      // traveling packet along the curve
+      const speed = 3000 + ((i*37+j*53)%1800);
+      const phase = ((t % speed) / speed);
+      const u = phase;
+      const ix = (1-u)*(1-u)*a.x + 2*(1-u)*u*cx + u*u*b.x;
+      const iy = (1-u)*(1-u)*a.y + 2*(1-u)*u*cy + u*u*b.y;
+      const rg = ctx.createRadialGradient(ix,iy,0,ix,iy,8);
+      rg.addColorStop(0,'rgba(255,255,255,0.95)');
+      rg.addColorStop(0.4,'rgba(138,234,255,0.6)');
+      rg.addColorStop(1,'rgba(95,227,255,0)');
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.arc(ix,iy,8,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(ix,iy,1.6,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawNodes(t){
+  // pulses and nodes
+  ctx.save();
+  const SHOW = NODES.map((n,i)=>{
+    const p = project(n[2], n[3]);
+    return {n,i,p};
+  }).filter(o=>o.p.z > -0.05);
+
+  document.getElementById('arcs').innerHTML = '';
+
+  for(const o of SHOW){
+    const [city,country,lat,lng,cc,bw,nodes,up,price] = o.n;
+    const p = o.p;
+    const zf = Math.max(0.25, Math.min(1, p.z+0.1));
+    // Size based on metric
+    let sz = 2;
+    if(metric === 'bandwidth') sz = 2 + (bw/6000)*5;
+    if(metric === 'nodes') sz = 2 + (nodes/4500)*5;
+    if(metric === 'price') sz = 2 + (price/0.08)*5;
+    sz *= zf;
+
+    const isHub = bw > 3000;
+    const isHover = hoverIdx === o.i;
+
+    // Halo pulse
+    if(isHub || isHover){
+      const pulse = (Math.sin(t/500 + o.i)*0.5+0.5);
+      ctx.strokeStyle = `rgba(95,227,255,${(0.15+pulse*0.3)*zf})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y, sz + 6 + pulse*5, 0, Math.PI*2);
+      ctx.stroke();
+    }
+
+    // Glow
+    const glow = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,sz*3.5);
+    glow.addColorStop(0, `rgba(138,234,255,${0.55*zf})`);
+    glow.addColorStop(1, 'rgba(95,227,255,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y, sz*3.5, 0, Math.PI*2);
+    ctx.fill();
+
+    // Core
+    ctx.fillStyle = `rgba(95,227,255,${0.9*zf})`;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y, sz, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${0.8*zf})`;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y, sz*0.35, 0, Math.PI*2);
+    ctx.fill();
+
+    if(isHover){
+      ctx.strokeStyle = '#8aeaff';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y, sz + 3, 0, Math.PI*2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  return SHOW;
+}
+
+let visibleNodes = [];
+
+function frame(t){
+  ctx.clearRect(0,0,W,H);
+  drawOrbits();
+  drawSphereShade();
+  drawMeridians();
+  drawLand();
+  drawTerminator();
+  drawRays(t);
+  drawConnection(t);
+  visibleNodes = drawNodes(t);
+  drawLabels();
+  updateUserMarker();
+  if(rotating) rot += rotSpeed;
+  requestAnimationFrame(frame);
+}
+
+/* =================== INTERACTIONS =================== */
+const tip = document.getElementById('tip');
+stage.addEventListener('mousemove', e=>{
+  const r = stage.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+  // find closest visible
+  let best = -1, bestd = 18;
+  for(const o of visibleNodes){
+    const d = Math.hypot(o.p.x-mx, o.p.y-my);
+    if(d < bestd){ bestd = d; best = o.i; }
+  }
+  hoverIdx = best;
+  if(best >= 0){
+    const n = NODES[best];
+    const o = visibleNodes.find(v=>v.i===best);
+    tip.style.left = o.p.x+'px';
+    tip.style.top = o.p.y+'px';
+    tip.classList.add('show');
+    document.getElementById('tipCity').textContent = n[0];
+    document.getElementById('tipCC').textContent = n[4];
+    document.getElementById('tipBw').textContent = n[5].toLocaleString();
+    document.getElementById('tipNodes').textContent = n[6].toLocaleString();
+    document.getElementById('tipUp').textContent = n[7].toFixed(1)+'%';
+    document.getElementById('tipPr').textContent = n[8].toFixed(3)+' $EXRA';
+    // Bars
+    const bars = document.getElementById('tipBars');
+    bars.innerHTML = '';
+    for(let i=0;i<8;i++){
+      const fill = i < Math.round(n[5]/6000*8) ? 100 : 30;
+      bars.innerHTML += `<div class="bar"><i style="width:${fill}%;opacity:${i<Math.round(n[5]/6000*8)?1:0.3}"></i></div>`;
+    }
+    // update coord
+    document.getElementById('coord').innerHTML =
+      `LAT ${n[2].toFixed(2)}°<br/>LON ${n[3].toFixed(2)}°<br/>`+
+      `<span style="color:var(--cyan)">● ${n[6].toLocaleString()} nodes</span>`;
+  } else {
+    tip.classList.remove('show');
+  }
+});
+stage.addEventListener('mouseleave', ()=>{
+  tip.classList.remove('show');
+  hoverIdx = -1;
+});
+
+// drag to rotate
+let dragging=false, lastX=0, wasRotating=true;
+stage.addEventListener('mousedown', e=>{
+  dragging = true; lastX = e.clientX; wasRotating = rotating; rotating = false;
+});
+window.addEventListener('mouseup', ()=>{ if(dragging){ dragging=false; rotating = wasRotating; }});
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  const dx = e.clientX - lastX;
+  lastX = e.clientX;
+  rot += dx * 0.005;
+});
+
+/* =================== STRIP =================== */
+function renderStrip(){
+  const totalNodes = NODES.reduce((a,n)=>a+n[6],0);
+  const totalBw = NODES.reduce((a,n)=>a+n[5]*n[6]/1000,0); // Gbps total * nodes approx
+  const avgUp = NODES.reduce((a,n)=>a+n[7],0)/NODES.length;
+  const countries = new Set(NODES.map(n=>n[1])).size;
+  const cells = [
+    {lbl:'Active nodes', val: totalNodes.toLocaleString(), delta:'+1,284 / 24h', pulse:true},
+    {lbl:'Bandwidth available', val: (totalBw/1000).toFixed(1), u:'Tbps', delta:'+8.2%'},
+    {lbl:'Countries', val: countries, u:'regions', delta:'+3 new'},
+    {lbl:'Avg uptime', val: avgUp.toFixed(2)+'%', delta:'stable'},
+    {lbl:'Median price', val:'0.048', u:'$EXRA / GB', delta:'−2.1%', neg:true},
+  ];
+  document.getElementById('strip').innerHTML = cells.map(c=>`
+    <div class="cell">
+      <div class="lbl">${c.pulse?'<span class="pulse"></span>':''}${c.lbl}</div>
+      <div class="val">${c.val}${c.u?`<span class="u">${c.u}</span>`:''}</div>
+      <div class="delta ${c.neg?'n':''}">${c.delta}</div>
+    </div>
+  `).join('');
+}
+
+/* =================== TABLE =================== */
+let filter = 'all', query = '';
+function renderTable(){
+  const tb = document.getElementById('tbody');
+  const rows = NODES.filter(n=>{
+    if(filter === 'gt1gbps' && n[5] < 1000) return false;
+    if(filter === 'low' && n[8] >= 0.04) return false;
+    if(filter === 'hi' && n[7] < 99) return false;
+    if(['asia','eu','am'].includes(filter) && n[9] !== filter) return false;
+    if(query && !(n[0].toLowerCase().includes(query) || n[1].toLowerCase().includes(query) || n[4].toLowerCase().includes(query))) return false;
+    return true;
+  }).sort((a,b)=>b[5]-a[5]);
+  document.getElementById('nodecount').textContent = `— ${rows.length} regions`;
+  tb.innerHTML = rows.map((n,idx)=>{
+    const spark = Array.from({length:8}, ()=>{
+      const h = 4+Math.random()*12;
+      return `<i style="height:${h}px;opacity:${0.35+Math.random()*0.55}"></i>`;
+    }).join('');
+    return `<tr data-city="${n[0]}">
+      <td>
+        <div class="cc">
+          <div class="flagdot">${n[4]}</div>
+          <div>
+            <div class="cn">${n[0]}</div>
+            <div class="ct">${n[1]}</div>
+          </div>
+        </div>
+      </td>
+      <td class="r"><span class="bw">${(n[5]>=1000?(n[5]/1000).toFixed(2):n[5]).toString()}<span class="u">${n[5]>=1000?'Gbps':'Mbps'}</span></span></td>
+      <td class="r" style="font-family:'JetBrains Mono',monospace;color:var(--ink2)">${n[6].toLocaleString()}</td>
+      <td class="r"><div class="mini" style="justify-content:flex-end"><div class="spark">${spark}</div><span class="pct">${n[7].toFixed(1)}%</span></div></td>
+      <td class="r"><span class="pr">${n[8].toFixed(3)}</span></td>
+      <td class="r"><span class="lv"><span class="d"></span>LIVE</span></td>
+      <td class="r"><button class="rbtn">Rent →</button></td>
+    </tr>`;
+  }).join('');
+  // Hook row hover to set hoverIdx
+  tb.querySelectorAll('tr').forEach((tr,ri)=>{
+    const row = rows[ri];
+    const idx = NODES.indexOf(row);
+    tr.addEventListener('mouseenter', ()=>{ hoverIdx = idx; });
+    tr.addEventListener('mouseleave', ()=>{ hoverIdx = -1; });
+  });
+}
+document.querySelectorAll('#nodetable').forEach(()=>{}); // noop
+document.querySelectorAll('.chip').forEach(c=>{
+  c.addEventListener('click', ()=>{
+    document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
+    c.classList.add('on');
+    filter = c.dataset.f;
+    renderTable();
+  });
+});
+document.getElementById('qinput').addEventListener('input', e=>{
+  query = e.target.value.toLowerCase();
+  renderTable();
+});
+
+/* =================== SWITCHERS =================== */
+function setVariant(v){
+  variant = v;
+  document.getElementById('page').classList.toggle('bold', v === 'bold');
+  document.getElementById('mapcard').classList.toggle('bold', v === 'bold');
+  document.querySelectorAll('#variant-switch button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  document.querySelectorAll('#var-tg button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  if(v === 'bold'){
+    rotSpeed = 0.004;
+  } else {
+    rotSpeed = 0.0022;
+  }
+  saveTweaks();
+  resize();
+}
+document.querySelectorAll('#variant-switch button').forEach(b=>{
+  b.addEventListener('click', ()=>setVariant(b.dataset.v));
+});
+
+document.querySelectorAll('#seg-metric button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#seg-metric button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    metric = b.dataset.m;
+  });
+});
+document.querySelectorAll('#seg-rot button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#seg-rot button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    rotating = b.dataset.r === 'play';
+  });
+});
+
+/* =================== CONNECT MODE =================== */
+function setMapMode(m){
+  mapMode = m;
+  document.querySelectorAll('#seg-mode button').forEach(b=>b.classList.toggle('on', b.dataset.mm===m));
+  const banner = document.getElementById('connectBanner');
+  banner.classList.toggle('on', m === 'connect');
+  if(m !== 'connect'){
+    connectTarget = -1;
+    document.getElementById('connrd').classList.remove('on');
+  }
+}
+document.querySelectorAll('#seg-mode button').forEach(b=>{
+  b.addEventListener('click', ()=>setMapMode(b.dataset.mm));
+});
+document.getElementById('cbExit').addEventListener('click', ()=>setMapMode('explore'));
+document.getElementById('crClose').addEventListener('click', ()=>{
+  connectTarget = -1;
+  document.getElementById('connrd').classList.remove('on');
+});
+
+// click node in connect mode
+stage.addEventListener('click', e=>{
+  if(mapMode !== 'connect') return;
+  const r = stage.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+  let best = -1, bestd = 22;
+  for(const o of visibleNodes){
+    const d = Math.hypot(o.p.x-mx, o.p.y-my);
+    if(d < bestd){ bestd = d; best = o.i; }
+  }
+  if(best < 0) return;
+  connectTarget = best;
+  const n = NODES[best];
+  // compute stats
+  const distKm = haversine(USER.lat, USER.lng, n[2], n[3]);
+  // rough latency: 8ms base + 0.008 ms/km * 2 (round trip factor baked)
+  const latMs = Math.round(8 + distKm * 0.008);
+  // hops: 1 + ceil(distKm / 1800)
+  const hops = 1 + Math.ceil(distKm / 1800);
+  const priceUsd = (n[8] * 0.42).toFixed(3); // $EXRA → USD-ish
+  document.getElementById('crFrom').textContent = 'Berlin';
+  document.getElementById('crTo').textContent = n[0];
+  document.getElementById('crLat').innerHTML = latMs + '<span style="font-size:11px;color:var(--ink3);font-family:JetBrains Mono,monospace;margin-left:3px">ms</span>';
+  document.getElementById('crHop').innerHTML = hops + '<span style="font-size:11px;color:var(--ink3);font-family:JetBrains Mono,monospace;margin-left:3px">nodes</span>';
+  document.getElementById('crDist').innerHTML = distKm.toFixed(0).toLocaleString() + '<span style="font-size:11px;color:var(--ink3);font-family:JetBrains Mono,monospace;margin-left:3px">km</span>';
+  document.getElementById('crPrice').innerHTML = n[8].toFixed(3) + '<span style="font-size:11px;color:var(--ink3);font-family:JetBrains Mono,monospace;margin-left:3px">$EXRA</span>';
+  document.getElementById('connrd').classList.add('on');
+});
+// hover cursor feedback
+stage.addEventListener('mousemove', ()=>{
+  stage.style.cursor = mapMode === 'connect' ? (hoverIdx >= 0 ? 'pointer' : 'crosshair') : 'grab';
+});
+
+/* =================== TWEAKS =================== */
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "style": "hex",
+  "variant": "conservative",
+  "rotation": "slow"
+}/*EDITMODE-END*/;
+
+let tweakState = {...TWEAK_DEFAULTS};
+try{ tweakState = {...tweakState, ...JSON.parse(localStorage.getItem('exra_map_tweaks')||'{}')}; }catch{}
+
+function applyTweaks(){
+  style = tweakState.style;
+  document.querySelectorAll('#style-tg button').forEach(b=>b.classList.toggle('on', b.dataset.s===style));
+  // rotation speed
+  const speeds = {slow:0.0022, med:0.005, fast:0.01, off:0};
+  rotSpeed = speeds[tweakState.rotation] ?? 0.0022;
+  rotating = tweakState.rotation !== 'off';
+  document.querySelectorAll('#rot-tg button').forEach(b=>b.classList.toggle('on', b.dataset.r===tweakState.rotation));
+  setVariant(tweakState.variant);
+}
+function saveTweaks(){
+  try{ localStorage.setItem('exra_map_tweaks', JSON.stringify(tweakState)); }catch{}
+  window.parent.postMessage({type:'__edit_mode_set_keys', edits: tweakState}, '*');
+}
+document.querySelectorAll('#style-tg button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    tweakState.style = b.dataset.s;
+    applyTweaks(); saveTweaks();
+  });
+});
+document.querySelectorAll('#rot-tg button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    tweakState.rotation = b.dataset.r;
+    applyTweaks(); saveTweaks();
+  });
+});
+document.querySelectorAll('#var-tg button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    tweakState.variant = b.dataset.v;
+    applyTweaks(); saveTweaks();
+  });
+});
+
+// Edit mode protocol
+window.addEventListener('message', (e)=>{
+  const d = e.data || {};
+  if(d.type === '__activate_edit_mode') document.getElementById('tweaks').classList.add('on');
+  if(d.type === '__deactivate_edit_mode') document.getElementById('tweaks').classList.remove('on');
+});
+document.getElementById('tweakclose').addEventListener('click', ()=>{
+  document.getElementById('tweaks').classList.remove('on');
+});
+window.parent.postMessage({type:'__edit_mode_available'}, '*');
+
+/* =================== BOOT =================== */
+resize();
+renderStrip();
+renderTable();
+applyTweaks();
+requestAnimationFrame(frame);
+</script>
+
+</body>
+</html>

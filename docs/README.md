@@ -1,27 +1,27 @@
 # Exra Documentation
 
-This directory contains the technical specifications, economic policy, and operational guides for the Exra decentralized compute network.
+This directory contains the living technical documentation for Exra.
 
-## ⚖️ Canonical Policy (Source of Truth)
-*If other documents conflict with these, these documents win.*
+## Source of Truth
 
-*   [PROTOCOL_ECONOMY_SPEC.md](file:///c:/Users/user/exra/docs/PROTOCOL_ECONOMY_SPEC.md) — Fundamental economic invariants and settlement rules.
-*   [TON_POLICY_LOCK.md](file:///c:/Users/user/exra/docs/TON_POLICY_LOCK.md) — Record of immutable token policy and emissions.
+`AGENTS.md` in the repository root is the canonical project document.
+If any document conflicts with `AGENTS.md`, `AGENTS.md` wins.
 
-## 🏗️ Architecture & Planning
-*   [EXRA_MASTER_PLAN.md](file:///c:/Users/user/exra/docs/EXRA_MASTER_PLAN.md) — Strategic roadmap and implementation stages.
-*   [ARCHITECTURE.md](file:///c:/Users/user/exra/docs/ARCHITECTURE.md) — System components and communication protocols.
-*   [AGENTS.md](file:///c:/Users/user/exra/AGENTS.md) — Developer context and core rules (Located in project root).
+## Core Documents (Current)
 
-## 💰 Component Specs
-*   [economy.md](file:///c:/Users/user/exra/docs/economy.md) — Human-readable overview of the reward model.
-*   [ADMIN_V1_SPEC.md](file:///c:/Users/user/exra/docs/ADMIN_V1_SPEC.md) — Admin API specification.
-*   [payout-logic.md](file:///c:/Users/user/exra/docs/payout-logic.md) — Payout fee calculations and verification rules.
+- `ARCHITECTURE.md` - Runtime architecture for Go server, Dashboard, TMA, Oracle flow, and peaq integration.
+- `PROTOCOL_ECONOMY_SPEC.md` - Economic invariants and settlement rules for EXRA on peaq.
+- `payout-logic.md` - Claim flow, timelock/tax rules, and payout safety checks.
+- `ADMIN_V1_SPEC.md` - Admin role model and operational APIs.
+- `RUNBOOK.md` - Operational runbook for deployment and routine maintenance.
+- `DEPLOYMENT_GUIDE.md` - Environment and rollout guidance.
+- `RELEASE_CHECKLIST.md` - Pre-release and production verification checklist.
+- `SMOKE_TESTS.md` - Manual smoke tests for critical user and operator paths.
+- `PEAQ_RUNTIME_INTEGRATION.md` - Runtime crate integration and fund flow.
+- `PALLET_EXRA_V2_4_1_SPEC.md` - Current pallet-level chain behavior and constraints.
+- `TMA_MARKETPLACE_HARDENING_PLAN.md` - Security hardening plan and applied controls.
 
-## 🛠️ Operations & QA
-*   [RUNBOOK.md](file:///c:/Users/user/exra/docs/RUNBOOK.md) — How to deploy and manage server instances.
-*   [SMOKE_TESTS.md](file:///c:/Users/user/exra/docs/SMOKE_TESTS.md) — Manual verification procedures.
-*   [RELEASE_CHECKLIST.md](file:///c:/Users/user/exra/docs/RELEASE_CHECKLIST.md) — Steps required before production deployment.
+## Legacy and Historical Notes
 
----
-*Note: Legacy documents (Solana-specific) have been moved to [archive/](file:///c:/Users/user/exra/docs/archive/).*
+- Old TON-era plans/specs were removed from the active docs set.
+- Historical materials remain under `docs/archive/` for reference only.

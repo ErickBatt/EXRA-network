@@ -10,11 +10,10 @@ If any other document conflicts with this file, this file wins.
 - `token_symbol`: `EXRA`
 - `premine`: `0`
 - `max_supply`: `1_000_000_000` EXRA
-- `epoch_duration`: `12 months`
-- `halving_factor`: `0.5`
+- `epoch_policy`: supply-based halving each `100_000_000` minted EXRA
+- `halving_factor`: `0.5` per epoch transition
 - `tail_emission`: `0`
-- `first_halving_at`: `2027-01-01T00:00:00Z`
-- `policy_finalized`: must become `true` in production and cannot be reverted
+- `policy_finalized`: immutable in production (`EXRA_POLICY_FINALIZED=true`)
 
 ## 3. Reward Model
 
@@ -26,75 +25,62 @@ Exra has two reward streams:
 ### 3.1 Presence Reward
 
 - Heartbeat target interval: 5 minutes.
-- Each valid heartbeat produces `total_emission` and splits:
-  - Worker: 50%
-  - Referrer: 10-30% (tier-driven)
-  - Treasury: remainder, never below 20%
+- Base PoP credit per valid heartbeat: `0.00005` credits.
+- Effective reward multiplier is derived from reputation score (`RS_mult`).
 
 ### 3.2 Usage Reward
 
-- Worker sets `price_per_gb` or enables `auto_price`.
-- Oracle locks `locked_price_per_gb` at assignment time.
-- Settlement is always based on verified usage and locked price:
+- Base traffic price baseline: `$0.30` per verified GB.
+- Settlement is always based on verified usage and reputation multiplier.
 
-`usage_reward_exra = (verified_bytes / 1e9) * locked_price_per_gb * worker_share`
+`usage_credits = (verified_bytes / 1e9) * 0.30 * RS_mult`
 
-## 4. Offer and Settlement Lifecycle
+## 4. Identity Tiers and Payout Gates
 
-1. Buyer creates offer with budget/constraints.
-2. Protocol reserves budget in EXRA accounting units.
-3. Oracle selects nodes by deterministic rule:
-   - lower effective price first,
-   - then higher reliability score.
-4. Session runs and usage is verified.
-5. Settlement writes immutable ledger events.
-6. Treasury and worker balances update atomically.
+Anon:
+- No stake required.
+- 24h timelock after batch settlement.
+- 25% treasury tax.
 
-## 5. Oracle Determinism and Failover
+Peak:
+- Requires stake + verified credential.
+- No timelock.
+- No anon tax.
 
-- Oracle must produce deterministic assignment from same input state.
-- Mid-session node failure triggers transparent failover:
-  - session continues on replacement node,
-  - buyer-facing continuity is preserved,
-  - settlement attributes usage by segment.
+## 5. Oracle Batch and Consensus
 
-## 6. Instant Swap
+Daily batch flow:
 
-Supported rails for V1:
-- EXRA -> USDT on TON
-- EXRA -> TON on TON
+1. Oracles collect signed usage/heartbeat evidence.
+2. At least 2 of 3 oracles must confirm no fraud.
+3. Fraudulent credits are burned or excluded before mint.
+4. Batch mint is submitted on-chain for validated DIDs.
 
-Swap execution is treasury-backed with spread.
+## 6. Anti-Fraud Guarantees
 
-### 6.1 Circuit Breaker
-
-Swap must pause temporarily when abnormal DEX volatility is detected to protect treasury from negative execution.
-Minimum controls:
-- max slippage threshold,
-- stale-quote timeout,
-- short cool-down window before retry.
+- Canary checks must invalidate fake-work paths.
+- Feeder audits must be multi-party and cross-subnet.
+- Repeated fraud may trigger slashing and DID revocation.
 
 ## 7. On-Chain Enforcement Requirements
 
 Contract-side guards:
 - cap enforcement (`minted_total + amount <= max_supply`)
-- epoch budget enforcement
-- halving schedule enforcement by epoch
-- `first_halving_at` stored in state
+- epoch schedule enforcement
 - post-finalization economics mutation disabled
 - oracle key rotation allowed without changing economics
 
 ## 8. Trust Surface (Public Metrics)
 
 - minted total vs cap
-- current epoch, epoch budget, remaining epoch mint
+- current epoch and remaining mint budget
 - policy finalized flag
 - oracle address and rotation history
-- swap pause status
+- dispute and batch settlement status
 
 ## 9. Non-Negotiable Invariants
 
 - No settlement without verified usage.
 - No mint outside policy bounds.
 - No silent economics changes after policy finalization.
-- No buyer-visible failure on single node drop if failover path is available.
+- No reward path that bypasses DID and oracle attestations.
