@@ -1,7 +1,0 @@
-./chain.go
-./get_block.go
-./get_block_hash.go
-./get_finalized_head.go
-./get_header.go
-./subscribe_finalized_heads.go
-./subscribe_new_heads.go

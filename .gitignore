@@ -16,8 +16,19 @@ Thumbs.db
 # Env files
 .env
 .env.local
-# Deploy artifacts (pre-built packages)
-deploy/dist/
+.env.production
+.env.staging
+
+# Deploy — contains server keys, build scripts, pre-built packages
+# Not needed for code review by investors/grant committees
+deploy/
+deploy.sh
+
+# Branch audit artifacts
+.branch-audit/
+
+# Grant documents (kept locally, shared separately)
+grant/
 
 # IDEs / agent tooling
 .vscode/

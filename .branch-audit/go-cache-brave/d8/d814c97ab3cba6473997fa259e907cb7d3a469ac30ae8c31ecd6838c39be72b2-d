@@ -1,4 +1,0 @@
-./edwards25519.go
-./scalarmult.go
-./table_constants.go
-./tables.go

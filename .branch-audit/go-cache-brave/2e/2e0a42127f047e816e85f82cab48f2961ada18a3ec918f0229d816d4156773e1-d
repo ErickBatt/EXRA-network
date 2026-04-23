@@ -1,8 +1,0 @@
-./client.go
-./geo.go
-./hub.go
-./tunnel.go
-./claim_test.go
-./client_trust_test.go
-./hub_redis_test.go
-./hub_test.go

@@ -1,8 +1,0 @@
-./asn.go
-./auth.go
-./cors.go
-./did_auth.go
-./logging.go
-./ratelimit.go
-./security.go
-./tma_auth.go

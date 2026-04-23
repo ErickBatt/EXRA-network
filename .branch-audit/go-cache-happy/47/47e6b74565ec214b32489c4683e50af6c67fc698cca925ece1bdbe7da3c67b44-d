@@ -1,6 +1,0 @@
-./compact.go
-./derive.go
-./hex.go
-./keypair.go
-./scheme.go
-./ss58_address.go

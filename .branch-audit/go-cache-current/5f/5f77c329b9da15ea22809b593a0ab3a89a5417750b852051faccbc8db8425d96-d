@@ -1,7 +1,0 @@
-./auth.go
-./billing.go
-./bridge.go
-./main.go
-./sessions.go
-./stitch_test.go
-./test_setup_test.go

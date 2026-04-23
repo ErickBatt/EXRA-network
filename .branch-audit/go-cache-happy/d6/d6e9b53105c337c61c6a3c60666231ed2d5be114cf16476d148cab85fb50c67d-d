@@ -1,7 +1,0 @@
-./batch.go
-./bip39.go
-./derive.go
-./helpers.go
-./keys.go
-./sign.go
-./vrf.go
