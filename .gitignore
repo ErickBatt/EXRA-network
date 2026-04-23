@@ -1,5 +1,12 @@
 # Build artifacts
 server/exra-server
+
+# Rust build artifacts (can be 100MB+)
+target/
+**/target/
+*.pdb
+*.rlib
+*.rmeta
 android/app/build/
 android/.gradle/
 android/build/
