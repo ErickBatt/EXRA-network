@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: "How it works", href: "#how" },
   { label: "Earn", href: "#earn" },
   { label: "Tokenomics", href: "#tokenomics" },
+  { label: "Marketplace", href: "/marketplace" },
   { label: "Docs", href: "https://docs.exra.space", external: true },
 ];
 
@@ -64,10 +65,10 @@ export function Navbar() {
 
           <div className="hidden md:flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
-              <Link href="https://app.exra.space">Sign in</Link>
+              <Link href="/auth">Sign in</Link>
             </Button>
             <Button variant="primary" size="sm" asChild>
-              <Link href="https://app.exra.space/start">
+              <Link href="/marketplace">
                 Launch app
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </Link>
@@ -109,7 +110,7 @@ export function Navbar() {
             ))}
             <div className="hairline my-2" />
             <Link
-              href="https://app.exra.space/start"
+              href="/marketplace"
               onClick={() => setMobileOpen(false)}
               className="px-4 py-3 text-base text-neon-bright font-medium flex items-center gap-1.5"
             >

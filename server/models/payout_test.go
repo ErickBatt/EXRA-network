@@ -18,7 +18,7 @@ func TestBuildPayoutPrecheck_BlockNegativeTransfer(t *testing.T) {
 		StorageFeeChain: 0.16,
 		TotalFeeChain:   0.21,
 	}
-	pre := BuildPayoutPrecheck("dev-1", "wallet-1", 0.10, 10.0, fees)
+	pre := BuildPayoutPrecheck("dev-1", "wallet-1", 0.10, 10.0, 1.0, fees)
 
 	assert.False(t, pre.CanPayout)
 	assert.Less(t, pre.NetAmountUSD, 0.0)
@@ -31,7 +31,7 @@ func TestBuildPayoutPrecheck_GasCalculationInvariance(t *testing.T) {
 		GasFeeChain:   1.0,
 		TotalFeeChain: 1.0,
 	}
-	pre := BuildPayoutPrecheck("dev-1", "wallet-1", 50.0, 100.0, fees)
+	pre := BuildPayoutPrecheck("dev-1", "wallet-1", 50.0, 100.0, 1.0, fees)
 
 	assert.True(t, pre.CanPayout)
 	assert.Equal(t, 1.0, pre.TotalFeeUSD)

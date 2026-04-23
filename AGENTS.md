@@ -1,8 +1,10 @@
 # EXRA — Единый документ проекта
 
 > **Читай этот файл в начале каждой сессии.**
-> Это единственный источник правды. Если документ противоречит другим файлам в `/docs` — этот файл выигрывает.
-> Последнее обновление: 18 апреля 2026 (Marketplace v2.4.1 forensic audit — 6 Sev-1 блокеров, 12 Sev-2)
+> С 23 апреля 2026 whitepaper (`EXRA White Paper_ Sovereign DePIN Infrastructure.pdf`) — главный продуктовый документ проекта.
+> `AGENTS.md` — инженерный ledger: что реально реализовано в коде, что живёт только в ветках, и что ещё не production-ready.
+> При конфликте по статусу реализации выигрывают код, тесты и [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md).
+> Последнее обновление: 23 апреля 2026 (Reality Audit — ветки сверены, stale audit-тесты обновлены, `server/go test ./...` green)
 
 ---
 
@@ -47,18 +49,20 @@
 
 | Компонент | Статус | Что реально работает |
 |-----------|--------|---------------------|
-| Go сервер (core) | ✅ 100% | Gorilla Mux unification, DID Auth, Hardened Traffic, PoP, Payouts, Peaq L1 Integration |
-| Android APK | ✅ 100% | Peaq DID (sr25519), WS подключение, TunnelWorker, Encrypted DID (KeyStore), Gradle 9.3.1, Kotlin 2.2.10 / AGP 9.1.1 |
-| Dashboard | ✅ 100% | Маркетплейс, авторизация, сессии, Peaq L1 Integration |
+| Go сервер (core + gateway) | 🟡 ~88% impl / ~68% prod | `go test ./...` в `server` green; A1/A3/B2/B3/C1/C2/D1/D3/E1/E2(min fix)/F1/G3 закрыты кодом, но остаются TMA P1, buyer-side traffic cross-check, IPv6 farms и peaq bridge mismatch |
+| Android APK | 🟡 ~70% impl / ~55% prod | Peaq DID, WS, heartbeat, TunnelWorker, compute_result и новый toolchain есть; full production proof и завершённый anti-fraud path не доказаны |
+| Dashboard / Marketplace | 🟡 ~75% impl / ~60% prod | Marketplace, buyer auth, TMA pages и buyer-api proxy есть; часть hardening ещё живёт в branch-only коммитах и рабочем дереве |
 | TON смарт-контракт | 🗑️ Removed | Полностью заменено на PEAQ DePIN |
 | TON интеграция в Go | 🗑️ Removed | Полностью заменено на PEAQ DePIN |
-| peaq Pallet (Rust) | ✅ 100% | pallet_exra implemented: add_oracle, batch_mint, stake_for_peak |
-| Migration Runner | ✅ 100% | Авто-накат миграций при старте сервера |
-| Telegram Mini App | ✅ 100% | UI есть, backend API полностью внедрен (PEAQ v2.1) |
-| Desktop агент | ✅ 30% | Header Auth реализован, подключение работает |
-| Admin панель | ✅ 100% | Role-based auth, Peaq Manual Batch Trigger |
-| Dynamic Pricing | ✅ 100% | Marketplace-фильтры и реальный Avg Price работают |
-| Compute Tasks | ✅ 100% | ZK-light (Signature) verification + RS Penalty Monitor |
+| peaq Pallet (Rust) | 🟡 ~85% impl / ~70% prod | `pallet_exra`, runtime wiring и тесты есть; реальная chain compatibility вне репо не доказана |
+| Go ↔ peaq bridge | 🟡 ~45% impl / ~25% prod | RPC client и mock E2E есть, но payload'ы в `server/peaq/peaq_client.go` не совпадают с текущим pallet API |
+| Migration Runner / Admin / Payouts | 🟡 ~80% impl / ~65% prod | Авто-накат миграций, admin payout flow, `mark-paid`, tx_hash audit trail и role auth есть |
+| Telegram Mini App backend | 🟡 ~75% impl / ~55% prod | Cookie-session и ownership checks есть; P1 по secret fallback, SameSite, revocation, fingerprint и DID uniqueness остаются |
+| Desktop агент | 🟡 ~30% impl / ~15% prod | Skeleton клиента, heartbeat, tunnel/compute simulation; далеко до production |
+| Dynamic Pricing | 🟡 ~80% impl / ~65% prod | Marketplace-фильтры и Avg Price работают, но общая buyer-security hardening ещё не вся в `main` |
+| Compute Tasks | 🟡 ~75% impl / ~55% prod | Dispatch/result path, ZK-light attestation и timeout monitor есть; продовая изоляция и экономика не доказаны |
+
+> Детальная сверка whitepaper ↔ main ↔ branch-only коммиты: [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md)
 
 ---
 
@@ -74,13 +78,13 @@
 - [x] **DID & Security:** Android peaq SDK (DID подписи), UI с timelock bar (24h для анонимов). (Done 2026-04-17)
 - [x] **Наследие:** Header Auth и TOCTOU защита выплат (SELECT FOR UPDATE) работают.
 
-### ФАЗА 2 — Маркетплейс + TMA (Completed April 2026)
+### ФАЗА 2 — Маркетплейс + TMA (Implemented, not fully hardened)
 - [x] Dynamic pricing с фильтрами по стране/цене/тиру.
 - [x] Telegram Mini App с backend (Staking/Me/Stats).
 - [x] Ролевая авторизация Admin (Ops/Finance/Admin).
 - [ ] Desktop агент (Windows).
 
-### ФАЗА 3 — Compute Market (Completed April 2026)
+### ФАЗА 3 — Compute Market (Implemented, not production-proven)
 - [x] GPU задачи с ZK-light верификацией (DID signatures).
 - [x] Авто-мониторинг тайм-аутов и RS Penalty (-50 points).
 - [x] Оффер-маркетплейс с детерминированным выбором нод (Peak only).
@@ -88,9 +92,9 @@
 
 ---
 
-## 5. Токеномика v2.0: PEAQ DePIN (Secure & Production-Ready)
+## 5. Токеномика v2.0: PEAQ DePIN (Target Spec from Whitepaper)
 
-*Основа: multi-oracle, anti-Sybil, 24h timelock. Закрыты все дыры: Sybil, collusion, oracle trust, churn. Только честные юзеры профитят.*
+*Это целевое состояние из whitepaper. Для фактической инженерной готовности см. секции 3, 11, 15 и `docs/REALITY_AUDIT_2026-04-23.md`.*
 
 ### 5.1 Token Model (Immutable Pallet)
 ```
@@ -267,7 +271,7 @@ EXRA_POLICY_FINALIZED=true
 
 ---
 
-## 10. Риски и их покрытие (Тестировано Monte Carlo)
+## 10. Риски и их покрытие (Target Model / не считать proof-of-production)
 
 | Threat | Mitigation | Kill Rate |
 | :-- | :-- | :-- |
@@ -280,45 +284,56 @@ EXRA_POLICY_FINALIZED=true
 
 ## 11. Известные долги (нужно сделать)
 
-### 🔴 Marketplace v2.4.1 Audit (2026-04-18) — БЛОКЕРЫ MVP-LAUNCH
+### 🔴 Reality Audit (2026-04-23) — что реально открыто после сверки кода и веток
 
-**Полный отчёт:** [AUDIT_MARKETPLACE_v2.4.1.md](AUDIT_MARKETPLACE_v2.4.1.md)
-**Исполняемые доказательства (падают на текущем коде):**
-- [server/gateway/stitch_test.go](server/gateway/stitch_test.go) — A1/A2/A3
-- [server/handlers/matcher_concurrency_test.go](server/handlers/matcher_concurrency_test.go) — B1/B2/B3
-- [server/hub/client_trust_test.go](server/hub/client_trust_test.go) — E1/E2/E3
+**Полный тех-аудит:** [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md)
+**Исторический forensic-отчёт:** [AUDIT_MARKETPLACE_v2.4.1.md](AUDIT_MARKETPLACE_v2.4.1.md)
 
-**P0 (блокирует launch, 1 спринт):**
-- [ ] **A1:** Race в `gateway/sessions.go::Stitch` — sync.Once + done-chan в waiter
-- [ ] **A3:** Bridge без IO-deadline → slowloris; `SetReadDeadline(90s)` в relay()
-- [ ] **B1:** Double-booking в `handlers/matcher.go` — atomic ZPOPMIN/Lua lease
-- [ ] **B2:** Формула матчера ≠ спеке; переписать на `0.5*RS + 0.25*latency + 0.25*geo`
-- [ ] **B3:** Balance-hold ДО выдачи Gateway JWT в `CreateOfferAndMatch`
-- [ ] **C1:** `hub.cleanupLoop` обнуляет active `lastResults` — заменить на LRU+TTL
-- [ ] **C2:** 7× `subscribeRedis*` без reconnect — обёртка `for { Subscribe; range; sleep+retry }`
-- [ ] **D1:** Убрать fallback `"default_gateway_secret_change_me_in_production"`, перейти на EdDSA (Control Plane подписывает, Gateway верифицирует)
-- [ ] **G3:** v2.1 Gateway не считает байты → нет биллинга; `atomic.AddInt64` + `HIncrByFloat` каждые 10 MB
+**Что реально подтверждено тестами на 2026-04-23:**
+- [x] `cd server && go test -count=1 ./...` — полностью green
+- [x] `server/gateway/stitch_test.go` — gateway green; A1/A3 не воспроизводятся
+- [x] `server/handlers/matcher_concurrency_test.go` — legacy proof для B1 переведён в skip при наличии `AtomicClaimNode`
+- [x] `server/hub/client_trust_test.go` — обновлён до regression-тестов по фактическому коду; universal canary hash больше не текущий баг
 
-**P1 (закрывает фрод-векторы, 2 спринта):**
-- [ ] **E1:** `case "feeder_report"` в `hub/client.go:306-314` — требовать подпись sr25519 над `assignment_id||target||verdict||ts`
-- [ ] **E2:** Canary `"canary_expected_hash"` — заменить на per-task `sha256(server_nonce||task_payload)` + Feeder-side verification трафика
-- [ ] **E3:** Worker self-reports `type:"traffic"` без cross-check — сверять с buyer-side counter при FinalizeSession
-- [ ] **F1:** `oracle.ProcessOracleProposal` не верифицирует подпись перед 2/3-consensus
-- [ ] **G1:** `TunnelHandler` не проверяет, что подключившийся node — тот, что матчер выбрал
-- [ ] **C4:** `BindClientDeviceID` не закрывает старый Conn при rebind
-- [ ] **E4:** `toSubnet24` не обрабатывает IPv6 фермы
-- [ ] **D3:** `CheckOrigin: return true` → CSRF из браузера
+**Уже закрыто кодом на `main`, но старый AGENTS продолжал считать открытым:**
+- [x] **A1:** `gateway/sessions.go::Stitch` переведён на `sync.Once` + `done`
+- [x] **A3:** `gateway/bridge.go` выставляет `SetReadDeadline(90s)`
+- [x] **B2:** `handlers/matcher.go` использует формулу `0.5*RS + 0.25*uptime + 0.25*priceFitness`
+- [x] **B3:** `HoldBalance(...)` стоит до выдачи Gateway JWT
+- [x] **C1:** `hub.cleanupLoop` теперь TTL-per-entry, а не bulk reset
+- [x] **C2:** `subscribeRedis*` завёрнуты в reconnect loops
+- [x] **D1:** Gateway signing path ушёл от старого hardcoded fallback в matcher flow
+- [x] **D3:** `handlers/ws.go` использует origin whitelist через `WS_ALLOWED_ORIGINS`
+- [x] **E1:** `feeder_report` требует подпись через `VerifyDIDSignature`
+- [x] **E2:** universal canary literal убран; `CreateCanaryTask` генерирует per-task hash
+- [x] **F1:** `oracle.ProcessOracleProposal` теперь верифицирует подпись до consensus
+- [x] **G3:** gateway byte accounting и Redis billing settlement реализованы
 
-**P2 (performance, 3 спринта):** HRW + Redis Lua lease, splice(2) zero-copy bridge, Redis-stream heartbeat batching.
+**Частично закрыто, но нельзя считать fully done:**
+- [~] **B1:** в production path есть `AtomicClaimNode(...)`, но нужен честный Redis-backed integration test
+- [~] **E3:** `hub/client.go` теперь clamp'ит worker-reported bytes через `MaxTrafficPerSec`, но buyer-side counter cross-check в `models/session.go::FinalizeSession` ещё не реализован
+- [~] **Canary anti-fraud:** серверный universal hash убран, но end-to-end binding к реальному proxy challenge и feeder-side traffic verification ещё требуют усиления
 
-**Компоненты «бетон» (не трогать):** `models/session.go::FinalizeSession`, `models/pop.go` (idempotencyKey), `models/fraud.go::FreezeNode`, `popChannel`, `DistributeReward`.
+**Подтверждённо открыто на `main`:**
+- [ ] **TMA P1:** см. секцию 15 (`TMA_SESSION_SECRET` fallback, SameSite, revoke, fingerprint, DID uniqueness)
+- [ ] **E3 final hardening:** buyer-side traffic cross-check всё ещё отсутствует в `FinalizeSession`
+- [ ] **E4:** `toSubnet24` не покрывает IPv6 фермы
+- [ ] **Go ↔ peaq bridge:** `server/peaq/peaq_client.go` не совпадает с текущими `batch_mint/update_stats` extrinsic signatures pallet
+
+**Важные branch-only коммиты, которые ещё не надо потерять:**
+- [x] `claude/brave-lewin-2497be` уже поглощена `main`
+- [x] Ряд high-priority commits из `claude/bold-carson-9596fe`, `claude/happy-einstein-60e24d` и `claude/agitated-burnell-563cba` был перепроверен cherry-pick'ами в отдельной integration-ветке
+- [x] Большинство этих cherry-pick'ов оказались пустыми или конфликтовали только на уже обновлённых местах, то есть их содержательная часть уже присутствует в `main` или в текущем рабочем дереве
+- [ ] Отдельной «волшебной ветки», которая делает проект 100%, не найдено
+
+**Компоненты «бетон» (не трогать без причины):** `models/session.go::FinalizeSession`, `models/pop.go` (idempotencyKey), `models/fraud.go::FreezeNode`, `popChannel`, `DistributeReward`.
 
 ### MVP/Launch Блокеры (PEAQ Transition):
-- [x] **PEAQ:** Реализация peaq Pallet (Rust) для pallet_exra. (Done 2026-04-16)
-- [x] **PEAQ:** Интеграция Peaq Go Client в серверную часть. (Done 2026-04-16)
-- [x] **PEAQ:** Интеграция peaq SDK в Android-приложение для формирования DID.
-- [x] **Oracles:** Реализовать Daily Batch логику и multisig extrinsic. (Done 2026-04-16)
-- [x] **Anti-fraud:** Механизм Feeders (P2P) и Canary (фейк-задачи). (Done 2026-04-16)
+- [x] **PEAQ:** Реализация peaq Pallet (Rust) для `pallet_exra` есть в репо.
+- [~] **PEAQ:** Go Client в сервере подключён, но по Reality Audit его payload'ы не совпадают с текущим pallet API. Нельзя считать это 100% done до live-chain сверки.
+- [x] **PEAQ:** peaq SDK в Android-приложение для формирования DID интегрирован.
+- [~] **Oracles:** Daily Batch логика, подписи и consensus есть; реальный on-chain mint path всё ещё требует сверки против runtime metadata.
+- [~] **Anti-fraud:** Feeders и Canary реализованы на минимально рабочем уровне; следующий незакрытый шаг — end-to-end challenge binding и buyer-side traffic cross-check.
 - [x] **Timelock UI:** Добавить "24h Timelock bar" в UI для Anon-пользователей.
 - [x] **Payout:** Velocity limit (1/24h на DID). (Done 2026-04-16)
 

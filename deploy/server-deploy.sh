@@ -95,10 +95,11 @@ if [ -d "${SCRIPT_DIR}/migrations" ]; then
   cp "${SCRIPT_DIR}/migrations/"*.sql "${MIG_DIR_DST}/"
   # postgres user не может читать из /root/ (home 700) — используем /tmp/ как
   # временный стейджинг для psql -f
-  MIG_STAGE=$(mktemp -d /tmp/exra-mig-XXXXXX)
-  cp "${MIG_DIR_DST}"/*.sql "${MIG_STAGE}/"
-  chmod -R o+r "${MIG_STAGE}"
-  ok "Миграции скопированы → ${MIG_DIR_DST} (stage: ${MIG_STAGE})"
+   MIG_STAGE=$(mktemp -d /tmp/exra-mig-XXXXXX)
+   cp "${MIG_DIR_DST}"/*.sql "${MIG_STAGE}/"
+   chmod -R 644 "${MIG_STAGE}"/*.sql
+   chmod 755 "${MIG_STAGE}"
+   ok "Миграции скопированы → ${MIG_DIR_DST} (stage: ${MIG_STAGE})"
 
   # Извлекаем DB имя из SUPABASE_URL в env (postgres://user:pass@host/DBNAME?...)
   DB_NAME=$(grep -E "^SUPABASE_URL=" "${ENV_FILE}" | head -1 | sed -E 's|.*/([^/?]+)(\?.*)?$|\1|')
@@ -152,7 +153,11 @@ sleep 2
 if systemctl is-active --quiet "${SYSTEMD_SERVICE}"; then
   ok "Сервис запущен: ${SYSTEMD_SERVICE}"
 else
-  fail "Сервис не поднялся! Проверь: journalctl -u ${SYSTEMD_SERVICE} -n 30"
+  echo ""
+  echo "=== ОШИБКА: Сервис не поднялся! Логи: ==="
+  journalctl -u "${SYSTEMD_SERVICE}" -n 50 --no-pager
+  echo "=== Конец логов ==="
+  fail "Сервис не поднялся! Проверь логи выше"
 fi
 
 # ============================================================

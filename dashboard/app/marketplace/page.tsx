@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   ShieldCheck,
   LogIn,
+  LogOut,
   Search,
   RefreshCw,
   Plus,
@@ -337,6 +338,21 @@ export default function MarketplacePage() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      await clearBuyerApiKey();
+      setRevealedApiKey('');
+      setBuyer(null);
+      setUser(null);
+      pushToast('info', 'Signed out successfully');
+      router.push('/auth');
+    } catch (e) {
+      console.error('Logout error:', e);
+      pushToast('error', 'Failed to sign out');
+    }
+  };
+
   const getFlag = (country: string) => {
     const flags: any = { IN: '🇮🇳', BR: '🇧🇷', NG: '🇳🇬', ID: '🇮🇩', MX: '🇲🇽', PH: '🇵🇭' };
     return flags[country] || '🌍';
@@ -389,22 +405,28 @@ export default function MarketplacePage() {
           <ArrowLeft size={15} strokeWidth={1.8} />
           Back to site
         </Link>
-        <Link className="nav-item" href="/admin">
-          <ShieldCheck size={15} strokeWidth={1.8} />
-          Admin Console
-        </Link>
 
         <div className="sidebar-bottom">
           {buyer ? (
-            <div className="buyer-info">
-              <div className="buyer-avatar">{buyer.email.substring(0, 2).toUpperCase()}</div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="buyer-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {buyer.email.split('@')[0]}
+            <>
+              <div className="buyer-info">
+                <div className="buyer-avatar">{buyer.email.substring(0, 2).toUpperCase()}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="buyer-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {buyer.email.split('@')[0]}
+                  </div>
+                  <div className="buyer-balance">${buyer.balance_usd.toFixed(2)}</div>
                 </div>
-                <div className="buyer-balance">${buyer.balance_usd.toFixed(2)}</div>
               </div>
-            </div>
+              <button 
+                className="nav-item" 
+                onClick={handleLogout}
+                style={{ justifyContent: 'center', color: 'var(--red)', padding: '10px', marginTop: '8px' }}
+              >
+                <LogOut size={15} strokeWidth={1.8} />
+                Sign out
+              </button>
+            </>
           ) : (
             <Link href="/auth" className="nav-item" style={{ justifyContent: 'center', color: 'var(--neon)', padding: '10px' }}>
               <LogIn size={15} strokeWidth={1.8} />
@@ -572,15 +594,18 @@ export default function MarketplacePage() {
                     )}
                   </div>
                 </div>
-                <div className="table-wrap">
-                  <div className="table-header"><span className="table-header-title">Operations</span></div>
-                  <div className="card-body-dash">
-                    <div className="api-hint">Operational actions moved to the dedicated admin console with role checks and audit logging.</div>
-                    <Link href="/admin" className="btn-hero-primary" style={{ display: 'inline-flex', marginTop: 14 }}>
-                      Open admin console <ArrowRight size={14} strokeWidth={2.4} />
-                    </Link>
+                {/* Only show admin console link if user is admin */}
+                {user?.user_metadata?.role === 'admin' && (
+                  <div className="table-wrap">
+                    <div className="table-header"><span className="table-header-title">Operations</span></div>
+                    <div className="card-body-dash">
+                      <div className="api-hint">Operational actions moved to the dedicated admin console with role checks and audit logging.</div>
+                      <Link href="/admin" className="btn-hero-primary" style={{ display: 'inline-flex', marginTop: 14 }}>
+                        Open admin console <ArrowRight size={14} strokeWidth={2.4} />
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}

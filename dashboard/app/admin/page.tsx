@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { fetchJson } from '@/lib/api';
+import { checkRateLimit } from '@/lib/rateLimit';
 import './admin.css';
 
 type AdminTokenomicsResponse = {
@@ -67,6 +68,7 @@ export default function AdminPage() {
   const [adminSecret, setAdminSecret] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [adminVerified, setAdminVerified] = useState(false);
 
   const [tokenomics, setTokenomics] = useState<AdminTokenomicsResponse | null>(null);
   const [queue, setQueue] = useState<OracleQueueItem[]>([]);
@@ -75,17 +77,18 @@ export default function AdminPage() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/auth');
-        return;
+      // Middleware already protects /admin on SSR level
+      // Just restore credentials from sessionStorage if available
+      if (typeof window !== 'undefined') {
+        const rememberedEmail = sessionStorage.getItem('exra_admin_email') || '';
+        const rememberedSecret = sessionStorage.getItem('exra_admin_secret') || '';
+        if (rememberedEmail) setAdminEmail(rememberedEmail);
+        if (rememberedSecret) setAdminSecret(rememberedSecret);
       }
       setSessionReady(true);
-      const rememberedEmail = localStorage.getItem('exra_admin_email') || '';
-      if (rememberedEmail) setAdminEmail(rememberedEmail);
     };
     init();
-  }, [router]);
+  }, []);
 
   const adminHeaders = useMemo(() => ({
     'X-Exra-Token': adminSecret,
@@ -98,12 +101,52 @@ export default function AdminPage() {
       return false;
     }
     setError('');
-    localStorage.setItem('exra_admin_email', adminEmail);
+    // Use sessionStorage instead of localStorage (cleared on browser close)
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('exra_admin_email', adminEmail);
+      sessionStorage.setItem('exra_admin_secret', adminSecret);
+    }
     return true;
+  };
+
+  const verifyAndLoad = async () => {
+    if (!ensureAdminAuth()) return;
+    setLoading(true);
+    try {
+      // First verify credentials by loading tokenomics stats
+      const statsRes = await fetchJson<AdminTokenomicsResponse>('/api/admin/tokenomics/stats', undefined, { headers: adminHeaders });
+      setTokenomics(statsRes);
+      setAdminVerified(true);
+      
+      // Then load other data
+      const [queueRes, payoutsRes, incidentsRes] = await Promise.all([
+        fetchJson<AdminQueueResponse>('/api/admin/oracle/queue?limit=50', undefined, { headers: adminHeaders }),
+        fetchJson<AdminPayoutResponse>('/api/admin/payouts', undefined, { headers: adminHeaders }),
+        fetchJson<AdminIncidentsResponse>('/api/admin/incidents', undefined, { headers: adminHeaders }),
+      ]);
+      setQueue(queueRes.items || []);
+      setPayouts(payoutsRes.items || []);
+      setIncidents(incidentsRes.summary || null);
+    } catch (e: any) {
+      setAdminVerified(false);
+      setError(e?.message || 'Invalid admin credentials or access denied');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadAll = async () => {
     if (!ensureAdminAuth()) return;
+    
+    // Rate limiting: max 5 requests per minute per admin email
+    const rateLimitKey = `admin-load:${adminEmail}`;
+    const allowed = await checkRateLimit(rateLimitKey, 5, 60);
+    
+    if (!allowed) {
+      setError('Too many requests. Please wait before trying again.');
+      return;
+    }
+    
     setLoading(true);
     try {
       const [statsRes, queueRes, payoutsRes, incidentsRes] = await Promise.all([
@@ -209,65 +252,78 @@ export default function AdminPage() {
         {error ? <div className="error">{error}</div> : null}
       </div>
 
-      <div className="admin-grid">
+      {/* Only show data if admin is verified (credentials worked) */}
+      {!adminVerified && !loading && (adminEmail || adminSecret) && (
         <div className="admin-card">
-          <h3>Incidents</h3>
-          <div className="kv">failed queue: <b>{incidents?.failed_mint_queue ?? 0}</b></div>
-          <div className="kv">retryable queue: <b>{incidents?.retryable_mint_queue ?? 0}</b></div>
-          <div className="kv">pending payouts: <b>{incidents?.pending_payouts ?? 0}</b></div>
-          <div className="kv">swap guard: <b>{incidents?.swap_guard_active ? 'active' : 'normal'}</b></div>
+          <h3 style={{ color: '#ef4444' }}>Access Denied</h3>
+          <div className="kv">Please verify your admin credentials.</div>
+          <div className="kv" style={{ fontSize: '11px', color: '#71717a' }}>Contact system administrator if you need access.</div>
         </div>
+      )}
 
-        <div className="admin-card">
-          <h3>Tokenomics</h3>
-          <div className="kv">policy finalized: <b>{tokenomics?.policy_finalized ? 'true' : 'false'}</b></div>
-          <div className="kv">max supply: <b>{tokenomics?.max_supply ?? 0}</b></div>
-          <div className="kv">pending mint: <b>{tokenomics?.stats?.total_exra_pending_mint ?? 0}</b></div>
-          <div className="kv">minted: <b>{tokenomics?.stats?.total_exra_minted ?? 0}</b></div>
-          <div className="kv">burned: <b>{tokenomics?.stats?.total_exra_burned ?? 0}</b></div>
-        </div>
-      </div>
-
-      <div className="admin-card">
-        <h3>Oracle Queue</h3>
-        <div className="table">
-          {queue.map((q) => (
-            <div key={q.id} className="row">
-              <span>#{q.id}</span>
-              <span>{q.status}</span>
-              <span>{q.amount_exra.toFixed(4)} EXRA</span>
-              <span>retries: {q.retry_count}</span>
-              <span>{q.error_text || q.dlq_reason || '-'}</span>
-              {(q.status === 'failed' || q.status === 'retryable') ? (
-                <button onClick={() => retryQueueItem(q.id)}>retry</button>
-              ) : null}
+      {adminVerified && (
+        <>
+          <div className="admin-grid">
+            <div className="admin-card">
+              <h3>Incidents</h3>
+              <div className="kv">failed queue: <b>{incidents?.failed_mint_queue ?? 0}</b></div>
+              <div className="kv">retryable queue: <b>{incidents?.retryable_mint_queue ?? 0}</b></div>
+              <div className="kv">pending payouts: <b>{incidents?.pending_payouts ?? 0}</b></div>
+              <div className="kv">swap guard: <b>{incidents?.swap_guard_active ? 'active' : 'normal'}</b></div>
             </div>
-          ))}
-          {queue.length === 0 ? <div className="row">No queue items</div> : null}
-        </div>
-      </div>
 
-      <div className="admin-card">
-        <h3>Payouts</h3>
-        <div className="table">
-          {payouts.map((p) => (
-            <div key={p.id} className="row">
-              <span>{p.id.slice(0, 8)}...</span>
-              <span>{p.device_id}</span>
-              <span>${Number(p.amount_usd).toFixed(4)}</span>
-              <span>{p.status}</span>
-              <span>{p.recipient_wallet}</span>
-              {p.status === 'pending' ? (
-                <>
-                  <button onClick={() => approvePayout(p.id)}>approve</button>
-                  <button onClick={() => rejectPayout(p.id)}>reject</button>
-                </>
-              ) : null}
+            <div className="admin-card">
+              <h3>Tokenomics</h3>
+              <div className="kv">policy finalized: <b>{tokenomics?.policy_finalized ? 'true' : 'false'}</b></div>
+              <div className="kv">max supply: <b>{tokenomics?.max_supply ?? 0}</b></div>
+              <div className="kv">pending mint: <b>{tokenomics?.stats?.total_exra_pending_mint ?? 0}</b></div>
+              <div className="kv">minted: <b>{tokenomics?.stats?.total_exra_minted ?? 0}</b></div>
+              <div className="kv">burned: <b>{tokenomics?.stats?.total_exra_burned ?? 0}</b></div>
             </div>
-          ))}
-          {payouts.length === 0 ? <div className="row">No payouts</div> : null}
-        </div>
-      </div>
+          </div>
+
+          <div className="admin-card">
+            <h3>Oracle Queue</h3>
+            <div className="table">
+              {queue.map((q) => (
+                <div key={q.id} className="row">
+                  <span>#{q.id}</span>
+                  <span>{q.status}</span>
+                  <span>{q.amount_exra.toFixed(4)} EXRA</span>
+                  <span>retries: {q.retry_count}</span>
+                  <span>{q.error_text || q.dlq_reason || '-'}</span>
+                  {(q.status === 'failed' || q.status === 'retryable') ? (
+                    <button onClick={() => retryQueueItem(q.id)}>retry</button>
+                  ) : null}
+                </div>
+              ))}
+              {queue.length === 0 ? <div className="row">No queue items</div> : null}
+            </div>
+          </div>
+
+          <div className="admin-card">
+            <h3>Payouts</h3>
+            <div className="table">
+              {payouts.map((p) => (
+                <div key={p.id} className="row">
+                  <span>{p.id.slice(0, 8)}...</span>
+                  <span>{p.device_id}</span>
+                  <span>${Number(p.amount_usd).toFixed(4)}</span>
+                  <span>{p.status}</span>
+                  <span>{p.recipient_wallet}</span>
+                  {p.status === 'pending' ? (
+                    <>
+                      <button onClick={() => approvePayout(p.id)}>approve</button>
+                      <button onClick={() => rejectPayout(p.id)}>reject</button>
+                    </>
+                  ) : null}
+                </div>
+              ))}
+              {payouts.length === 0 ? <div className="row">No payouts</div> : null}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

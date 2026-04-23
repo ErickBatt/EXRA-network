@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { PeaqProvider } from "@/lib/peaq/PeaqProvider";
+import CsrfTokenProvider from "@/components/CsrfTokenProvider";
 
 export const metadata: Metadata = {
   title: "EXRA — The decentralized network that runs on every device",
@@ -12,7 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <PeaqProvider>
-          {children}
+          <CsrfTokenProvider>
+            {children}
+          </CsrfTokenProvider>
         </PeaqProvider>
       </body>
     </html>

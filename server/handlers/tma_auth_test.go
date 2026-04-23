@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"exra/middleware"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ import (
 )
 
 // buildSignedInitData forges a Telegram-style initData query string signed
-// with the given bot token so tests can exercise the real verifier end-to-end.
+// with the given bot token so the handler tests exercise the real verifier.
 func buildSignedInitData(t *testing.T, botToken string, authDate time.Time, telegramID int64) string {
 	t.Helper()
 	userJSON := fmt.Sprintf(`{"id":%d,"first_name":"Alice","username":"alice"}`, telegramID)
@@ -63,12 +64,12 @@ func TestVerifyTelegramInitData_AcceptsFreshSignedData(t *testing.T) {
 	defer restore()
 
 	initData := buildSignedInitData(t, "test-bot-token-fresh", time.Now(), 12345)
-	ident, err := telegramUserFromInitData(initData)
+	ident, err := middleware.VerifyTelegramInitData(initData)
 	if err != nil {
 		t.Fatalf("expected ok, got %v", err)
 	}
-	if ident.ID != 12345 {
-		t.Fatalf("expected telegram id 12345, got %d", ident.ID)
+	if ident.TelegramID != 12345 {
+		t.Fatalf("expected telegram id 12345, got %d", ident.TelegramID)
 	}
 }
 
@@ -77,10 +78,9 @@ func TestVerifyTelegramInitData_RejectsTamperedHash(t *testing.T) {
 	defer restore()
 
 	initData := buildSignedInitData(t, "test-bot-token-tampered", time.Now(), 777)
-	// Flip the last hash character so the HMAC no longer verifies.
 	tampered := strings.Replace(initData, "hash=", "hash=0", 1)
-	_, err := telegramUserFromInitData(tampered)
-	if !errors.Is(err, errInitDataInvalidSig) {
+	_, err := middleware.VerifyTelegramInitData(tampered)
+	if !errors.Is(err, middleware.ErrTMAInvalidSignature) {
 		t.Fatalf("expected invalid sig error, got %v", err)
 	}
 }
@@ -89,10 +89,9 @@ func TestVerifyTelegramInitData_RejectsWrongBotToken(t *testing.T) {
 	restore := withBotToken(t, "server-token")
 	defer restore()
 
-	// Sign with a different token than the server knows — attacker-generated.
 	initData := buildSignedInitData(t, "attacker-token", time.Now(), 99)
-	_, err := telegramUserFromInitData(initData)
-	if !errors.Is(err, errInitDataInvalidSig) {
+	_, err := middleware.VerifyTelegramInitData(initData)
+	if !errors.Is(err, middleware.ErrTMAInvalidSignature) {
 		t.Fatalf("expected invalid sig error, got %v", err)
 	}
 }
@@ -101,20 +100,19 @@ func TestVerifyTelegramInitData_RejectsExpiredAuthDate(t *testing.T) {
 	restore := withBotToken(t, "token-expired")
 	defer restore()
 
-	// 48h-old initData should be past the 24h freshness window.
 	initData := buildSignedInitData(t, "token-expired", time.Now().Add(-48*time.Hour), 1)
-	_, err := telegramUserFromInitData(initData)
-	if !errors.Is(err, errInitDataExpired) {
+	_, err := middleware.VerifyTelegramInitData(initData)
+	if !errors.Is(err, middleware.ErrTMAExpiredInitData) {
 		t.Fatalf("expected expired error, got %v", err)
 	}
 }
 
 // TmaLinkDevice must refuse a request where no init_data is provided even if
-// the caller supplies a telegram_id directly — that was the pre-fix attack.
+// the caller supplies a telegram_id directly.
 func TestTmaLinkDevice_RejectsMissingInitData(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"device_id":   "dev-abc",
-		"telegram_id": 999, // attacker-controlled, must be ignored
+		"telegram_id": 999,
 	})
 	req := httptest.NewRequest("POST", "/api/tma/link-device", bytes.NewBuffer(body))
 	rr := httptest.NewRecorder()

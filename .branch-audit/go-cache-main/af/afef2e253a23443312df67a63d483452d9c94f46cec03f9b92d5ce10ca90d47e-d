@@ -1,0 +1,8 @@
+./chain.go
+./health.go
+./name.go
+./network_state.go
+./peers.go
+./properties.go
+./system.go
+./version.go

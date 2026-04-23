@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"exra/db"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,12 +21,12 @@ import (
 )
 
 const (
-	TMASessionCookie     = "exra_tma_session"
-	TMASessionTTL        = 24 * time.Hour
-	TMAInitDataMaxAge    = 24 * time.Hour
-	TMATelegramIDKey     = contextKey("tma_telegram_id")
-	TMATelegramUserKey   = contextKey("tma_telegram_user")
-	TMATelegramFirstKey  = contextKey("tma_telegram_first_name")
+	TMASessionCookie    = "exra_tma_session"
+	TMASessionTTL       = 24 * time.Hour
+	TMAInitDataMaxAge   = 24 * time.Hour
+	TMATelegramIDKey    = contextKey("tma_telegram_id")
+	TMATelegramUserKey  = contextKey("tma_telegram_user")
+	TMATelegramFirstKey = contextKey("tma_telegram_first_name")
 )
 
 var (
@@ -54,6 +55,12 @@ func tmaSessionSecret() []byte {
 		s = os.Getenv("SESSION_SECRET")
 	}
 	if s == "" {
+		// CRITICAL: In production (GO_ENV=production), this MUST be set.
+		// A hardcoded fallback means any attacker can forge TMA sessions.
+		if os.Getenv("GO_ENV") == "production" {
+			log.Fatal("FATAL: TMA_SESSION_SECRET is not set. Set it to a random string (min 32 bytes) before starting in production.")
+		}
+		log.Printf("WARNING: TMA_SESSION_SECRET not set, using insecure dev fallback. DO NOT use in production!")
 		s = "exra_tma_dev_secret_do_not_use_in_prod"
 	}
 	return []byte(s)

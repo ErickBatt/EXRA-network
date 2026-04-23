@@ -32,6 +32,17 @@ export async function buyerFetch<T>(
     headers.set('Content-Type', 'application/json');
   }
 
+  // Add CSRF token for POST/PUT/DELETE requests
+  const method = init?.method?.toUpperCase() || 'GET';
+  if (['POST', 'PUT', 'DELETE'].includes(method)) {
+    if (typeof window !== 'undefined') {
+      const csrfToken = sessionStorage.getItem('csrf_token');
+      if (csrfToken) {
+        headers.set('X-CSRF-Token', csrfToken);
+      }
+    }
+  }
+
   const res = await fetch(url, {
     ...init,
     headers,
@@ -40,6 +51,14 @@ export async function buyerFetch<T>(
   });
 
   if (res.status === 401) throw new BuyerApiUnauthorized();
+  if (res.status === 403) {
+    // CSRF validation failed
+    const body = await res.text();
+    if (body.includes('csrf')) {
+      throw new Error('Security validation failed. Please refresh the page and try again.');
+    }
+    throw new Error(`API ${res.status}: ${body}`);
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API ${res.status}: ${body}`);

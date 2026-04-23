@@ -111,13 +111,13 @@ export function Hero() {
             className="mt-10 flex flex-col sm:flex-row gap-3"
           >
             <Button variant="primary" size="lg" asChild>
-              <Link href="https://app.exra.space/start">
+              <Link href="/marketplace">
                 Run a node
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
             <Button variant="secondary" size="lg" asChild>
-              <Link href="https://buy.exra.space">
+              <Link href="/marketplace">
                 <Zap className="h-4 w-4" />
                 Buy bandwidth
               </Link>

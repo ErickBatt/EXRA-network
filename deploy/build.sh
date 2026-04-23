@@ -56,10 +56,7 @@ if ! command -v $GO_CMD >/dev/null 2>&1; then
 fi
 
 if command -v $GO_CMD >/dev/null 2>&1; then
-  export GOOS=linux
-  export GOARCH=amd64
-  export CGO_ENABLED=0
-  $GO_CMD build -ldflags="-s -w" -o exra-server-linux .
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $GO_CMD build -ldflags="-s -w" -o exra-server-linux .
   ok "Binary пересобран: server/exra-server-linux"
 elif [ -f "${REPO_ROOT}/server/exra-server-linux" ]; then
   warn "Go не найден — используем существующий бинарник (Go код не менялся? ОК)"
