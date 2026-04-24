@@ -1,5 +1,12 @@
 # Build artifacts
 server/exra-server
+server/exra-server-linux
+server/exra-server-linux-*
+server/*.exe
+server/main
+server/kilonet
+server/oracle
+server/gateway
 
 # Rust build artifacts (can be 100MB+)
 target/
@@ -26,10 +33,13 @@ Thumbs.db
 .env.production
 .env.staging
 
-# Deploy — contains server keys, build scripts, pre-built packages
-# Not needed for code review by investors/grant committees
+# Deploy — содержит пароли и собранные артефакты, не для code review
 deploy/
 deploy.sh
+# Но сами скрипты сборки/деплоя — в репо
+!deploy/build.sh
+!deploy/server-deploy.sh
+!deploy/env.sample
 
 # Branch audit artifacts
 .branch-audit/
