@@ -40,6 +40,7 @@ deploy.sh
 !deploy/build.sh
 !deploy/server-deploy.sh
 !deploy/env.sample
+!deploy/auto-deploy.py
 
 # Branch audit artifacts
 .branch-audit/
