@@ -295,25 +295,22 @@ func ProcessOracleProposal(prop OracleProposal, oracleNodes int) {
 // CheckOracleConsensus verifies if 2/3 oracles agree on a specific payload hash.
 func CheckOracleConsensus(batchDate, hash string, totalNodes int) {
 	var count int
-	_ = db.DB.QueryRow(`
-		SELECT COUNT(*) FROM oracle_batches
-		WHERE batch_date = $1 AND payload_hash = $2 AND status = 'received'
-	`, batchDate, hash).Scan(&count)
+	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM oracle_batches WHERE batch_date = $1 AND payload_hash = $2 AND status = 'received'`,
+		batchDate, hash).Scan(&count)
 
-	threshold := (totalNodes * 2) / 3
+	// ceil(2n/3) — mirrors pallet-exra v2.4.1 verify_oracle_multisig threshold.
+	// Floor (n*2)/3 under-counts: N=5 gives 3 (Go) vs 4 (Rust), N=7 gives 4 vs 5.
+	threshold := (totalNodes*2 + 2) / 3
 	if threshold < 2 {
-		threshold = 1 // Support local dev with 1 node
+		threshold = 2
 	}
 
 	if count >= threshold {
 		log.Printf("[Oracle] CONSENSUS REACHED for %s (hash: %s, nodes: %d/%d)", batchDate, hash, count, totalNodes)
 
 		// 1. Mark batch as consensus
-		_, err := db.DB.Exec(`
-			UPDATE oracle_batches 
-			SET status = 'consensus' 
-			WHERE batch_date = $1 AND payload_hash = $2
-		`, batchDate, hash)
+		_, err := db.DB.Exec(`UPDATE oracle_batches SET status = 'consensus' WHERE batch_date = $1 AND payload_hash = $2`,
+			batchDate, hash)
 
 		if err != nil {
 			log.Printf("[Oracle] Consensus update failed: %v", err)
@@ -442,41 +439,61 @@ func TriggerBatchMint(batchDate string, hash string) {
 	}
 	defer rows.Close()
 
-	var sigs []peaq.OracleSignature
+	// 2a. Fetch on-chain OracleSet to map DID → index for IndexedSignature (v2.4.1).
+	oracleKeys, err := peaqClient.GetOracleSet()
+	if err != nil {
+		log.Printf("[Oracle] GetOracleSet failed: %v — aborting batch mint", err)
+		return
+	}
+	oracleIndexMap := make(map[[32]byte]uint8, len(oracleKeys))
+	for i, key := range oracleKeys {
+		oracleIndexMap[key] = uint8(i)
+	}
+
+	var sigs []peaq.IndexedSignature
 	for rows.Next() {
 		var did, sigStr string
 		if err := rows.Scan(&did, &sigStr); err == nil {
-			// Convert DID to AccountID
-			acc, err := types.NewAccountIDFromHexString(did)
-			if err == nil {
-				sigBytes, _ := hex.DecodeString(sigStr)
-				var fixedSig [64]byte
-				copy(fixedSig[:], sigBytes)
-				sigs = append(sigs, peaq.OracleSignature{
-					Account:   *acc,
-					Signature: fixedSig,
-				})
+			pubBytes, hexErr := hex.DecodeString(strings.TrimPrefix(did, "0x"))
+			if hexErr != nil || len(pubBytes) != 32 {
+				continue
 			}
-		}
-	}
-
-	// 3. Prepare rewards
-	var rewards []peaq.RewardEntry
-	for did, amount := range dist {
-		acc, err := types.NewAccountIDFromHexString(did)
-		if err == nil {
-			// Convert USD amount to 9-decimal EXRA (1 USD = 1 EXRA for simplicity in example, 
-			// in reality would use price oracle)
-			val := uint64(amount * 1_000_000_000)
-			rewards = append(rewards, peaq.RewardEntry{
-				Account: *acc,
-				Amount:  types.NewU128(*big.NewInt(0).SetUint64(val)),
+			var pubKey [32]byte
+			copy(pubKey[:], pubBytes)
+			idx, ok := oracleIndexMap[pubKey]
+			if !ok {
+				log.Printf("[Oracle] oracle DID %s not in on-chain OracleSet, skipping sig", did)
+				continue
+			}
+			sigBytes, _ := hex.DecodeString(sigStr)
+			var fixedSig [64]byte
+			copy(fixedSig[:], sigBytes)
+			sigs = append(sigs, peaq.IndexedSignature{
+				Index:     idx,
+				Signature: fixedSig,
 			})
 		}
 	}
 
-	// 4. Send Extrinsic
-	txHash, err := peaqClient.SendBatchMint([]byte(batchDate), rewards, sigs)
+	// 3. Prepare claims (Vec<Claim{account, net}> for pallet-exra v2.4.1 batch_mint).
+	var claims []peaq.ClaimEntry
+	for did, amount := range dist {
+		acc, err := types.NewAccountIDFromHexString(did)
+		if err == nil {
+			// USD→plancks: multiply by 1e9. Production path uses on-chain price oracle.
+			val := uint64(amount * 1_000_000_000)
+			claims = append(claims, peaq.ClaimEntry{
+				Account: *acc,
+				Net:     types.NewU128(*big.NewInt(0).SetUint64(val)),
+			})
+		}
+	}
+
+	// 4. batchID as H256: sha256 of the batch date string for determinism.
+	batchIDBytes := sha256.Sum256([]byte(batchDate))
+
+	// 5. Send Extrinsic
+	txHash, err := peaqClient.SendBatchMint(batchIDBytes, claims, sigs)
 	if err != nil {
 		log.Printf("[Oracle] On-chain mint failed: %v", err)
 		return
@@ -523,33 +540,31 @@ func TriggerReputationBatch(batchDate string, hash string) {
 	}
 	defer rows.Close()
 
-	var updates []peaq.ReputationUpdate
+	var entries []peaq.StatEntry
 	for rows.Next() {
 		var did string
 		var score float64
 		if err := rows.Scan(&did, &score); err == nil {
 			acc, err := types.NewAccountIDFromHexString(did)
 			if err == nil {
-				updates = append(updates, peaq.ReputationUpdate{
-					Account: *acc,
-					Score:   types.U32(uint32(score)),
+				entries = append(entries, peaq.StatEntry{
+					Account:    *acc,
+					Heartbeats: 0, // populated by PoP heartbeat pipeline (separate query)
+					GbVerified: 0, // populated by traffic verifier (separate query)
+					Gs:         uint16(score),
 				})
 			}
 		}
 	}
 
-	if len(updates) == 0 {
+	if len(entries) == 0 {
 		return
 	}
 
-	// 2. Fetch signatures for consensus (Reusing signature logic from mint batch)
-	// In production, we would use a separate 'reputation_signatures' table if hashes differ.
-	// For MVP, consensus on rewards implies consensus on the node set.
-	log.Printf("[PEAQ] Submitting reputations for %d nodes", len(updates))
-	
-	// Use the batchDate as updateID for uniqueness per day
-	_, err = peaqClient.SendReputationUpdates([]byte(batchDate+"-reputation"), updates, nil) // Signatures set to nil for local oracle testing
+	log.Printf("[PEAQ] Submitting update_stats for %d nodes", len(entries))
+	repoBatchID := sha256.Sum256([]byte(batchDate + "-reputation"))
+	_, err = peaqClient.SendUpdateStats(repoBatchID, entries, nil)
 	if err != nil {
-		log.Printf("[Oracle] On-chain reputation update failed: %v", err)
+		log.Printf("[Oracle] On-chain update_stats failed: %v", err)
 	}
 }

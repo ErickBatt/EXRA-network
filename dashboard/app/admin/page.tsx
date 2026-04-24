@@ -77,14 +77,8 @@ export default function AdminPage() {
 
   useEffect(() => {
     const init = async () => {
-      // Middleware already protects /admin on SSR level
-      // Just restore credentials from sessionStorage if available
-      if (typeof window !== 'undefined') {
-        const rememberedEmail = sessionStorage.getItem('exra_admin_email') || '';
-        const rememberedSecret = sessionStorage.getItem('exra_admin_secret') || '';
-        if (rememberedEmail) setAdminEmail(rememberedEmail);
-        if (rememberedSecret) setAdminSecret(rememberedSecret);
-      }
+      // Middleware protects /admin at SSR level.
+      // Credentials live in React state only — no JS-readable storage.
       setSessionReady(true);
     };
     init();
@@ -101,11 +95,6 @@ export default function AdminPage() {
       return false;
     }
     setError('');
-    // Use sessionStorage instead of localStorage (cleared on browser close)
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('exra_admin_email', adminEmail);
-      sessionStorage.setItem('exra_admin_secret', adminSecret);
-    }
     return true;
   };
 

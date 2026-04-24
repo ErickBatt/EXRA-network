@@ -1,5 +1,5 @@
 /* EXRA TMA — premium design aligned with exra.space (cyberpunk-minimalism + 2026 DePIN trends) */
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
 
 :root {
   --bg: #09090b;
@@ -46,7 +46,7 @@
   display: flex;
   flex-direction: column;
   color: var(--ink);
-  font-family: 'Geist', 'Inter', system-ui, sans-serif;
+  font-family: 'Syne', system-ui, sans-serif;
   font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -142,7 +142,7 @@
 }
 
 .mono {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-feature-settings: "tnum", "ss01";
 }
 
@@ -192,7 +192,7 @@
   line-height: 1.2;
 }
 .tma-subtitle {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   color: var(--ink-dim);
   margin-top: 2px;
@@ -207,7 +207,7 @@
   height: 34px;
   border-radius: 10px;
   background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -231,10 +231,10 @@
   gap: 7px;
   padding: 5px 13px;
   border-radius: 100px;
-  border: 1px solid rgba(34, 211, 238, 0.4);
+  border: 0.5px solid rgba(34, 211, 238, 0.4);
   background: rgba(34, 211, 238, 0.06);
   backdrop-filter: blur(12px);
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.06em;
@@ -255,7 +255,7 @@
   position: absolute;
   inset: -2px;
   border-radius: 50%;
-  border: 1px solid var(--neon);
+  border: 0.5px solid var(--neon);
   animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 
@@ -265,7 +265,7 @@
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
   pointer-events: none;
 }
@@ -277,7 +277,7 @@
   border-radius: 22px;
   overflow: hidden;
   isolation: isolate;
-  border: 1px solid var(--glass-border-bright);
+  border: 0.5px solid var(--glass-border-bright);
   background: linear-gradient(180deg, #0d0d10 0%, #09090b 100%);
   box-shadow: var(--shadow-glass-elevated);
   animation: fade-up .7s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -334,7 +334,7 @@
 }
 
 .hero-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   font-weight: 500;
   color: var(--ink-dim);
@@ -358,7 +358,7 @@
 }
 
 .hero-sub {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
   color: var(--ink-muted);
   margin-top: 8px;
@@ -372,9 +372,9 @@
   gap: 7px;
   padding: 5px 11px;
   border-radius: 100px;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  border: 0.5px solid rgba(16, 185, 129, 0.4);
   background: rgba(16, 185, 129, 0.06);
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -397,7 +397,7 @@
   position: absolute;
   inset: -3px;
   border-radius: 50%;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 
@@ -409,7 +409,7 @@
   padding: 10px 14px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   backdrop-filter: blur(8px);
   overflow: hidden;
   white-space: nowrap;
@@ -436,7 +436,7 @@
 }
 
 .ticker-item {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   color: var(--ink-muted);
   letter-spacing: 0.02em;
@@ -470,7 +470,7 @@
   padding: 16px 14px 14px;
   border-radius: 16px;
   background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-glass-inset);
   overflow: hidden;
@@ -510,7 +510,7 @@
   gap: 6px;
 }
 .bal-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   font-weight: 500;
   color: var(--ink-dim);
@@ -540,7 +540,7 @@
   color: transparent;
 }
 .bal-sub {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   color: var(--ink-dim);
   margin-top: auto;
@@ -605,7 +605,7 @@
   width: 46px;
   height: 46px;
   border-radius: 100px;
-  border: 1px solid var(--glass-border-bright);
+  border: 0.5px solid var(--glass-border-bright);
   background: var(--glass-fill);
   backdrop-filter: blur(12px);
   display: flex;
@@ -625,7 +625,7 @@
   padding: 12px 16px;
   border-radius: 14px;
   background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   backdrop-filter: blur(12px);
   position: relative;
   overflow: hidden;
@@ -639,14 +639,14 @@
 }
 .epoch-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .epoch-name {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   color: var(--ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 .epoch-remaining {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   color: var(--neon-bright);
   font-variant-numeric: tabular-nums;
@@ -686,7 +686,7 @@
   padding: 0 2px;
 }
 .section-title {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   font-weight: 500;
   color: var(--ink-dim);
@@ -694,7 +694,7 @@
   letter-spacing: 0.12em;
 }
 .section-action {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   color: var(--neon-bright);
   cursor: pointer;
@@ -711,7 +711,7 @@
   gap: 12px;
   padding: 13px 14px;
   background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   border-radius: 14px;
   backdrop-filter: blur(12px);
   margin-bottom: 8px;
@@ -741,19 +741,19 @@
 }
 .device-icon.cyan {
   background: rgba(34, 211, 238, 0.08);
-  border: 1px solid rgba(34, 211, 238, 0.22);
+  border: 0.5px solid rgba(34, 211, 238, 0.22);
   color: var(--neon-bright);
   box-shadow: inset 0 0 12px rgba(34, 211, 238, 0.08);
 }
 .device-icon.violet {
   background: rgba(167, 139, 250, 0.08);
-  border: 1px solid rgba(167, 139, 250, 0.22);
+  border: 0.5px solid rgba(167, 139, 250, 0.22);
   color: var(--neon-violet);
   box-shadow: inset 0 0 12px rgba(167, 139, 250, 0.08);
 }
 .device-icon.green {
   background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.22);
+  border: 0.5px solid rgba(16, 185, 129, 0.22);
   color: var(--success);
   box-shadow: inset 0 0 12px rgba(16, 185, 129, 0.08);
 }
@@ -767,10 +767,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 .device-meta {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   color: var(--ink-dim);
   margin-top: 2px;
@@ -802,7 +802,7 @@
   position: absolute;
   inset: -3px;
   border-radius: 50%;
-  border: 1px solid var(--success);
+  border: 0.5px solid var(--success);
   animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 .device-status.offline { background: var(--ink-ghost); }
@@ -819,7 +819,7 @@
   letter-spacing: -0.01em;
 }
 .device-earned {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   color: var(--ink-dim);
   font-variant-numeric: tabular-nums;
@@ -842,7 +842,7 @@
   height: 48px;
   border-radius: 14px;
   background: rgba(34, 211, 238, 0.06);
-  border: 1px solid rgba(34, 211, 238, 0.18);
+  border: 0.5px solid rgba(34, 211, 238, 0.18);
   color: var(--neon-bright);
   display: inline-flex;
   align-items: center;
@@ -895,7 +895,7 @@
   font-weight: 500;
   color: var(--ink);
   background: var(--glass-fill);
-  border: 1px solid var(--glass-border-bright);
+  border: 0.5px solid var(--glass-border-bright);
   backdrop-filter: blur(12px);
   cursor: pointer;
   transition: all .2s;
@@ -909,7 +909,7 @@
   gap: 6px;
   padding: 8px 14px;
   border-radius: 100px;
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   background: transparent;
   color: var(--ink-muted);
   font-size: 12px;
@@ -972,7 +972,7 @@
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   background: var(--glass-fill);
   color: var(--ink-muted);
   font-size: 14px;
@@ -987,7 +987,7 @@
 .modal-body { display: flex; flex-direction: column; gap: 4px; }
 
 .api-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   font-weight: 500;
   color: var(--ink-dim);
@@ -999,7 +999,7 @@
 .input-wrap {
   background: var(--bg-subtle);
   border-radius: 12px;
-  border: 1px solid var(--glass-border);
+  border: 0.5px solid var(--glass-border);
   padding: 0 14px;
   transition: all .2s;
 }
@@ -1014,7 +1014,7 @@
   color: var(--ink);
   padding: 13px 0;
   font-size: 15px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   outline: none;
   font-variant-numeric: tabular-nums;
 }
@@ -1047,7 +1047,7 @@
   position: absolute;
   inset: -8px;
   border-radius: 22px;
-  border: 1px solid var(--neon);
+  border: 0.5px solid var(--neon);
   animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 
@@ -1069,10 +1069,10 @@
   color: var(--danger);
   font-size: 12px;
   margin-top: 8px;
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   padding: 8px 12px;
   background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  border: 0.5px solid rgba(239, 68, 68, 0.2);
   border-radius: 10px;
 }
 
@@ -1106,13 +1106,13 @@
   position: absolute;
   inset: -8px;
   border-radius: 24px;
-  border: 1px solid var(--neon);
+  border: 0.5px solid var(--neon);
   animation: pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 .splash-logo::after { animation-delay: 1.2s; }
 
 .splash-label {
-  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   color: var(--ink-dim);
   text-transform: uppercase;
@@ -1142,7 +1142,7 @@
   background: rgba(13, 13, 16, 0.88);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--glass-border-bright);
+  border: 0.5px solid var(--glass-border-bright);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: var(--ink);
   font-size: 13px;
