@@ -143,20 +143,23 @@ step "1/4 Обновление Go backend"
 systemctl stop "${SYSTEMD_SERVICE}" 2>/dev/null && ok "Сервис остановлен" || warn "Сервис уже был остановлен"
 sleep 1
 
-# Билдим прямо на сервере — единственный надёжный способ избежать проблем с архитектурой
+# Синхронизируем исходники из архива, затем билдим на сервере
 SOURCE_DIR="/root/exra/server"
-if [ -d "${SOURCE_DIR}" ] && command -v go >/dev/null 2>&1; then
-  ok "Сборка из исходников на сервере ($(go version | awk '{print $3}'))..."
-  cd "${SOURCE_DIR}"
-  go build -o "${BINARY_DST}" .
-  ok "Binary собран → ${BINARY_DST}"
-elif [ -f "${SCRIPT_DIR}/exra-server-linux" ]; then
-  warn "Go не найден — копируем бинарник из архива (убедись что архитектура совпадает!)"
-  cp "${SCRIPT_DIR}/exra-server-linux" "${BINARY_DST}"
-  ok "Binary скопирован → ${BINARY_DST}"
+if [ -d "${SCRIPT_DIR}/server-src" ]; then
+  mkdir -p "${SOURCE_DIR}"
+  rsync -a --delete \
+    --exclude='*.exe' --exclude='exra-server-linux*' --exclude='*.log' \
+    "${SCRIPT_DIR}/server-src/" "${SOURCE_DIR}/"
+  ok "Исходники обновлены → ${SOURCE_DIR}"
 else
-  fail "Go не установлен и бинарник отсутствует"
+  warn "server-src не найден в архиве — билдим из текущего кода на сервере"
 fi
+
+command -v go >/dev/null 2>&1 || fail "Go не установлен на сервере"
+ok "Сборка ($(go version | awk '{print $3}'))..."
+cd "${SOURCE_DIR}"
+go build -o "${BINARY_DST}" .
+ok "Binary собран → ${BINARY_DST}"
 chmod +x "${BINARY_DST}"
 
 # Убиваем зависший процесс на порту 8080 (бывает при нечистом стопе сервиса)

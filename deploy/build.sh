@@ -81,8 +81,10 @@ ok "Next.js landing build: OK"
 step "Упаковка пакета: ${PACKAGE_NAME}"
 mkdir -p "${BUILD_DIR}/dashboard" "${BUILD_DIR}/landing"
 
-# Go binary
-cp "${REPO_ROOT}/server/exra-server-linux" "${BUILD_DIR}/"
+# Go исходники — сервер билдит сам, чтобы не было проблем с архитектурой
+mkdir -p "${BUILD_DIR}/server-src"
+rsync -a --exclude='*.exe' --exclude='exra-server-linux*' --exclude='*.log' \
+  "${REPO_ROOT}/server/" "${BUILD_DIR}/server-src/"
 
 # Dashboard — Next.js standalone (minimal runtime, не нужен npm install на сервере)
 cp -r "${REPO_ROOT}/dashboard/.next/standalone/." "${BUILD_DIR}/dashboard/"
