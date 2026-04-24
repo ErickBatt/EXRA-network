@@ -83,8 +83,11 @@ mkdir -p "${BUILD_DIR}/dashboard" "${BUILD_DIR}/landing"
 
 # Go исходники — сервер билдит сам, чтобы не было проблем с архитектурой
 mkdir -p "${BUILD_DIR}/server-src"
-rsync -a --exclude='*.exe' --exclude='exra-server-linux*' --exclude='*.log' \
-  "${REPO_ROOT}/server/" "${BUILD_DIR}/server-src/"
+cp -r "${REPO_ROOT}/server/." "${BUILD_DIR}/server-src/"
+# Убираем мусор
+rm -f "${BUILD_DIR}/server-src/"*.exe \
+      "${BUILD_DIR}/server-src/exra-server-linux"* \
+      "${BUILD_DIR}/server-src/"*.log
 
 # Dashboard — Next.js standalone (minimal runtime, не нужен npm install на сервере)
 cp -r "${REPO_ROOT}/dashboard/.next/standalone/." "${BUILD_DIR}/dashboard/"

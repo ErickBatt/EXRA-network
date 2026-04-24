@@ -147,9 +147,7 @@ sleep 1
 SOURCE_DIR="/root/exra/server"
 if [ -d "${SCRIPT_DIR}/server-src" ]; then
   mkdir -p "${SOURCE_DIR}"
-  rsync -a --delete \
-    --exclude='*.exe' --exclude='exra-server-linux*' --exclude='*.log' \
-    "${SCRIPT_DIR}/server-src/" "${SOURCE_DIR}/"
+  cp -r "${SCRIPT_DIR}/server-src/." "${SOURCE_DIR}/"
   ok "Исходники обновлены → ${SOURCE_DIR}"
 else
   warn "server-src не найден в архиве — билдим из текущего кода на сервере"
