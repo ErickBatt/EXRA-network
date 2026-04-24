@@ -23,7 +23,7 @@ import (
 const (
 	TMASessionCookie    = "exra_tma_session"
 	TMASessionTTL       = 24 * time.Hour
-	TMAInitDataMaxAge   = 24 * time.Hour
+	TMAInitDataMaxAge   = 1 * time.Hour // Telegram docs: reject stale initData; 1h is sufficient for replay protection
 	TMATelegramIDKey    = contextKey("tma_telegram_id")
 	TMATelegramUserKey  = contextKey("tma_telegram_user")
 	TMATelegramFirstKey = contextKey("tma_telegram_first_name")
@@ -166,14 +166,19 @@ func IssueTMASession(w http.ResponseWriter, p *TMAInitDataParams) error {
 		return err
 	}
 
-	secure := os.Getenv("TMA_COOKIE_INSECURE") != "1"
+	// TMA runs in a Telegram iframe (cross-origin). SameSite=None is required so
+	// the browser sends the cookie on cross-origin fetch. Secure=true is always
+	// enforced because Telegram Mini Apps are HTTPS-only.
+	// Path="/" is intentional: the Next.js proxy serves /next-tma/* and the Go
+	// backend serves /api/tma/* — the browser must send the cookie to both paths.
+	// The JWT itself enforces auth; path restriction adds no meaningful security here.
 	http.SetCookie(w, &http.Cookie{
 		Name:     TMASessionCookie,
 		Value:    signed,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   int(TMASessionTTL.Seconds()),
 	})
 	return nil

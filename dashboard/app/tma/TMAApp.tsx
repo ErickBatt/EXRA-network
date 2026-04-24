@@ -5,7 +5,7 @@ import WebApp from "@twa-dev/sdk"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Smartphone, Monitor, Router, X, ArrowUpRight, RefreshCw, Plus, Zap,
-  Check, AlertCircle, Wifi
+  Check, AlertCircle, Wifi, Tag, PauseCircle, PlayCircle, Trash2, List
 } from "lucide-react"
 import LavaHero from "@/components/LavaHero"
 import "./tma.css"
@@ -15,7 +15,9 @@ const TMA_PROXY = "/next-tma"
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || {})
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json")
-  const res = await fetch(`${TMA_PROXY}${path}`, { ...init, headers, cache: "no-store" })
+  // credentials:"include" ensures the HttpOnly session cookie (exra_tma_session)
+  // is sent to the Next.js proxy which forwards it to Go backend.
+  const res = await fetch(`${TMA_PROXY}${path}`, { ...init, headers, cache: "no-store", credentials: "include" })
 
   if (!res.ok) {
     let msg = `API ${res.status}`
@@ -35,6 +37,19 @@ interface Device {
   device_type: string
   country: string
   status: string
+}
+
+interface Listing {
+  id: string
+  device_id: string
+  price_per_gb: number
+  bandwidth_mbps: number
+  gear_score: number
+  identity_tier: string
+  status: string
+  pop_sessions: number
+  updated_at: string
+  node_status: string
 }
 
 interface Account {
@@ -108,6 +123,14 @@ export default function TMAApp() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastIdRef = useRef(0)
 
+  // Marketplace listings state
+  const [listings, setListings] = useState<Listing[]>([])
+  const [showCreateLot, setShowCreateLot] = useState(false)
+  const [createLotDeviceId, setCreateLotDeviceId] = useState("")
+  const [createLotPrice, setCreateLotPrice] = useState("0.05")
+  const [createLotBw, setCreateLotBw] = useState("100")
+  const [lotLoading, setLotLoading] = useState(false)
+
   const pushToast = (kind: Toast["kind"], text: string, ttl = 3200) => {
     const id = ++toastIdRef.current
     setToasts(t => [...t, { id, kind, text }])
@@ -127,7 +150,7 @@ export default function TMAApp() {
     WebApp.ready()
     WebApp.expand()
     WebApp.setHeaderColor("#09090b")
-    authenticate()
+    authenticate().then(loadListings)
   }, [])
 
   useEffect(() => {
@@ -183,6 +206,57 @@ export default function TMAApp() {
   const handleRefresh = () => {
     haptic("light")
     authenticate()
+    loadListings()
+  }
+
+  const loadListings = async () => {
+    try {
+      const data = await apiFetch<{ listings: Listing[] }>("/lots")
+      setListings(data.listings || [])
+    } catch {
+      // silent — listings are secondary to device dashboard
+    }
+  }
+
+  const handleCreateLot = async () => {
+    if (!createLotDeviceId) return
+    setLotLoading(true)
+    try {
+      await apiFetch("/lots/create", {
+        method: "POST",
+        body: JSON.stringify({
+          device_id: createLotDeviceId,
+          price_per_gb: parseFloat(createLotPrice),
+          bandwidth_mbps: parseInt(createLotBw, 10),
+        }),
+      })
+      setShowCreateLot(false)
+      haptic("success")
+      pushToast("success", "Listing created")
+      loadListings()
+    } catch (err: any) {
+      haptic("error")
+      pushToast("error", err.message)
+    } finally {
+      setLotLoading(false)
+    }
+  }
+
+  const handleLotAction = async (id: string, action: "pause" | "resume" | "delete") => {
+    haptic("light")
+    try {
+      if (action === "delete") {
+        await apiFetch(`/lots/${id}`, { method: "DELETE" })
+      } else {
+        await apiFetch(`/lots/${id}/${action}`, { method: "POST" })
+      }
+      haptic("success")
+      pushToast("success", `Listing ${action}d`)
+      loadListings()
+    } catch (err: any) {
+      haptic("error")
+      pushToast("error", err.message)
+    }
   }
 
   const handleLinkDevice = async () => {
@@ -331,6 +405,61 @@ export default function TMAApp() {
                 </div>
                 <button className="btn-primary w-full mt-lg" onClick={handleWithdraw} disabled={withdrawLoading}>
                   {withdrawLoading ? (<><div className="spinner" /> Processing…</>) : (<>Confirm withdrawal <ArrowUpRight size={15} /></>)}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* CREATE LOT MODAL */}
+        {showCreateLot && (
+          <motion.div
+            key="modal-create-lot"
+            className="tma-modal"
+            onClick={(e) => e.target === e.currentTarget && setShowCreateLot(false)}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="tma-modal-card"
+              initial={{ y: 40 }} animate={{ y: 0 }} exit={{ y: 40 }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+            >
+              <div className="modal-header">
+                <span className="modal-title">List capacity</span>
+                <button className="modal-close" onClick={() => setShowCreateLot(false)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div className="api-label">Device</div>
+                <div className="input-wrap">
+                  <select
+                    value={createLotDeviceId}
+                    onChange={e => setCreateLotDeviceId(e.target.value)}
+                    style={{ width: "100%", background: "var(--surface)", color: "var(--ink)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}
+                  >
+                    <option value="">Select device…</option>
+                    {account?.devices.map(d => (
+                      <option key={d.device_id} value={d.device_id}>
+                        {d.device_id.substring(0, 12)}… · {d.device_type || "unknown"} · {d.status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="api-label mt-md">Price ($/GB)</div>
+                <div className="input-wrap">
+                  <input type="number" step="0.01" min="0.001" max="100"
+                    value={createLotPrice} onChange={e => setCreateLotPrice(e.target.value)} />
+                </div>
+                <div className="api-label mt-md">Bandwidth (Mbps)</div>
+                <div className="input-wrap">
+                  <input type="number" min="1" max="10000"
+                    value={createLotBw} onChange={e => setCreateLotBw(e.target.value)} />
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-ghost)", marginTop: 10, lineHeight: 1.5 }}>
+                  Requires ≥3 completed PoP sessions. Listing is visible to buyers immediately.
+                </div>
+                <button className="btn-primary w-full mt-lg" onClick={handleCreateLot}
+                  disabled={lotLoading || !createLotDeviceId}>
+                  {lotLoading ? (<><div className="spinner" /> Creating…</>) : (<><Tag size={14} /> Publish listing</>)}
                 </button>
               </div>
             </motion.div>
@@ -517,6 +646,75 @@ export default function TMAApp() {
               </motion.div>
             )
           })}
+        </section>
+        {/* MARKETPLACE LISTINGS */}
+        <section className="section">
+          <div className="section-head">
+            <span className="section-title"><List size={13} style={{ display: "inline", verticalAlign: "middle", marginRight: 5 }} />My listings</span>
+            <span className="section-action" onClick={() => { haptic("light"); setShowCreateLot(true) }}>
+              <Plus size={11} style={{ display: "inline" }} /> list capacity
+            </span>
+          </div>
+
+          {listings.filter(l => l.status !== "deleted").length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon"><Tag size={20} strokeWidth={2} /></div>
+              <div>No active listings. List a device to earn from marketplace buyers.</div>
+              <div style={{ marginTop: 14 }}>
+                <button className="btn-secondary" onClick={() => { haptic("light"); setShowCreateLot(true) }}>
+                  <Tag size={14} /> Create listing
+                </button>
+              </div>
+            </div>
+          )}
+
+          {listings.filter(l => l.status !== "deleted").map((lot, i) => (
+            <motion.div
+              key={lot.id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.04 * i }}
+              className="device-row"
+              style={{ alignItems: "flex-start", flexDirection: "column", gap: 8 }}
+            >
+              <div style={{ display: "flex", width: "100%", alignItems: "center", gap: 10 }}>
+                <div className={`device-icon ${lot.identity_tier === "peak" ? "violet" : lot.identity_tier === "basic" ? "green" : "cyan"}`}>
+                  <Tag size={15} strokeWidth={2.1} />
+                </div>
+                <div className="device-info" style={{ flex: 1 }}>
+                  <div className="device-name">{lot.device_id.substring(0, 12)}…</div>
+                  <div className="device-meta">
+                    <span className={`device-status ${lot.node_status === "online" ? "online" : "offline"}`} />
+                    ${lot.price_per_gb.toFixed(3)}/GB · {lot.bandwidth_mbps} Mbps · {lot.identity_tier}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {lot.status === "active" ? (
+                    <button
+                      onClick={() => handleLotAction(lot.id, "pause")}
+                      style={{ background: "rgba(251,191,36,0.12)", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: "#fbbf24" }}
+                      title="Pause"
+                    ><PauseCircle size={14} /></button>
+                  ) : (
+                    <button
+                      onClick={() => handleLotAction(lot.id, "resume")}
+                      style={{ background: "rgba(16,185,129,0.12)", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: "#10b981" }}
+                      title="Resume"
+                    ><PlayCircle size={14} /></button>
+                  )}
+                  <button
+                    onClick={() => handleLotAction(lot.id, "delete")}
+                    style={{ background: "rgba(239,68,68,0.1)", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: "#ef4444" }}
+                    title="Delete"
+                  ><Trash2 size={14} /></button>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--ink-ghost)", paddingLeft: 42 }}>
+                {lot.pop_sessions} PoP sessions · GearScore {lot.gear_score.toFixed(2)} ·
+                {" "}<span style={{ color: lot.status === "active" ? "#10b981" : "#fbbf24" }}>{lot.status}</span>
+              </div>
+            </motion.div>
+          ))}
         </section>
       </div>
 

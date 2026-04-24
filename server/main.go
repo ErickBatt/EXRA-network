@@ -162,6 +162,7 @@ func main() {
 	// Telegram Mini App API — cookie-session model (TMAAuth)
 	tmaAuthLimit := middleware.ScopedRateLimit("tma-auth", 0.5, 5)   // ~30/min per IP
 	tmaLinkLimit := middleware.ScopedRateLimit("tma-link", 0.05, 3)  // ~3/min per IP, anti-approval-spam
+	tmaLotLimit  := middleware.ScopedRateLimit("tma-lots", 0.1, 5)   // ~6/min per IP, anti-spam listing
 	r.HandleFunc("/api/tma/auth", tmaAuthLimit(handlers.TmaAuth)).Methods("POST")                            // public — verify initData, issue cookie
 	r.HandleFunc("/api/tma/logout", handlers.TmaLogout).Methods("POST")                                      // public — clear cookie
 	r.HandleFunc("/api/tma/link-device", tmaLinkLimit(handlers.TmaLinkDevice)).Methods("POST")               // public — signed initData in body
@@ -171,6 +172,16 @@ func main() {
 	r.HandleFunc("/api/tma/withdraw", middleware.TMAAuth(handlers.TmaWithdraw)).Methods("POST")              // cookie + device ownership
 	r.HandleFunc("/api/tma/epoch", handlers.TmaEpoch).Methods("GET")                                         // public
 	r.HandleFunc("/api/tma/push-token", middleware.TMAAuth(handlers.TmaRegisterPushToken)).Methods("POST")   // cookie + device ownership
+
+	// Worker marketplace listings — TMA-only write surface (workers); public read for buyers.
+	r.HandleFunc("/api/tma/lots", middleware.TMAAuth(handlers.TmaListMyLots)).Methods("GET")
+	r.HandleFunc("/api/tma/lots/create", tmaLotLimit(middleware.TMAAuth(handlers.TmaCreateLot))).Methods("POST")
+	r.HandleFunc("/api/tma/lots/{id}/pause", middleware.TMAAuth(handlers.TmaPauseLot)).Methods("POST")
+	r.HandleFunc("/api/tma/lots/{id}/resume", middleware.TMAAuth(handlers.TmaResumeLot)).Methods("POST")
+	r.HandleFunc("/api/tma/lots/{id}", middleware.TMAAuth(handlers.TmaDeleteLot)).Methods("DELETE")
+	// Public marketplace read — buyers browse, no auth required.
+	r.HandleFunc("/api/marketplace/lots", handlers.MarketplaceListLots).Methods("GET")
+	r.HandleFunc("/api/marketplace/lots/{id}", handlers.MarketplaceGetLot).Methods("GET")
 
 	// HTTP CONNECT proxy endpoint
 	r.HandleFunc("/proxy", middleware.BuyerAuth(handlers.HTTPConnectProxy)).Methods("POST", "CONNECT", "GET")

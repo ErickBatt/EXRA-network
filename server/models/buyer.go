@@ -56,10 +56,12 @@ func GetBuyerByEmail(email string) (*Buyer, error) {
 
 func GetBuyerByAPIKey(apiKey string) (*Buyer, error) {
 	buyer := &Buyer{}
+	// Do not SELECT api_key — the caller already has it; storing it back in Buyer
+	// would risk it leaking into logs or error responses.
 	err := db.DB.QueryRow(
-		`SELECT id, api_key, email, balance_usd, created_at FROM buyers WHERE api_key_hash = $1`,
+		`SELECT id, email, balance_usd, created_at FROM buyers WHERE api_key_hash = $1`,
 		hashAPIKey(apiKey),
-	).Scan(&buyer.ID, &buyer.APIKey, &buyer.Email, &buyer.BalanceUSD, &buyer.CreatedAt)
+	).Scan(&buyer.ID, &buyer.Email, &buyer.BalanceUSD, &buyer.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
