@@ -17,7 +17,7 @@ const COLUMNS = [
     links: [
       { label: "Docs", href: "https://docs.exra.space" },
       { label: "API", href: "https://docs.exra.space/api" },
-      { label: "Whitepaper", href: "https://exra.space/whitepaper.pdf" },
+      { label: "Whitepaper", href: "/whitepaper" },
       { label: "GitHub", href: "https://github.com/exra" },
     ],
   },
@@ -33,9 +33,6 @@ const COLUMNS = [
   {
     title: "Company",
     links: [
-      { label: "About", href: "/about" },
-      { label: "Careers", href: "/careers" },
-      { label: "Brand kit", href: "/brand" },
       { label: "Contact", href: "mailto:hi@exra.space" },
     ],
   },

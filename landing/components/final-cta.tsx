@@ -49,7 +49,7 @@ export function FinalCta() {
                   </Link>
                 </Button>
                 <Button variant="secondary" size="lg" asChild>
-                  <Link href="https://docs.exra.space">
+                  <Link href="/whitepaper">
                     <BookOpen className="h-4 w-4" />
                     Read the whitepaper
                   </Link>

@@ -64,9 +64,6 @@ export function Navbar() {
           </div>
 
           <div className="hidden md:flex items-center gap-2">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/auth">Sign in</Link>
-            </Button>
             <Button variant="primary" size="sm" asChild>
               <Link href="/marketplace">
                 Launch app
