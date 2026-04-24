@@ -1,68 +1,36 @@
 /**
- * POST /next-tma/auth
- * 
- * Validates Telegram initData and returns user profile.
- * This endpoint is called by TMA on startup to authenticate the user.
+ * POST /next-tma/auth — forward to Go backend /api/tma/auth.
+ *
+ * The previous version validated initData locally and returned a stub empty profile,
+ * bypassing the real Go backend entirely (no session cookie, no real data).
+ *
+ * Now: pure proxy. initData validation + session cookie issuance is exclusively
+ * handled by Go (HMAC-SHA256, 1h TTL, HttpOnly SameSite=None JWT).
+ * The catch-all [...path] handles all other /next-tma/* paths identically.
  */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { validateTelegramInitData } from '@/lib/tmaAuth';
 
-export async function POST(request: NextRequest) {
-  try {
-    const { init_data } = await request.json();
+const GO_BACKEND = process.env.TMA_API_BASE || 'https://api.exra.space';
 
-    if (!init_data) {
-      console.warn('[TMA] Auth request missing init_data');
-      return NextResponse.json(
-        { error: 'init_data required' },
-        { status: 400 }
-      );
-    }
+const FORWARD_RES_HEADERS = ['content-type', 'set-cookie'];
 
-    // Get bot token from environment
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (!botToken) {
-      console.error('[TMA] TELEGRAM_BOT_TOKEN not configured');
-      return NextResponse.json(
-        { error: 'server misconfigured' },
-        { status: 500 }
-      );
-    }
+export async function POST(req: NextRequest) {
+  const body = await req.text();
 
-    // Validate initData signature and TTL
-    const { valid, data } = validateTelegramInitData(init_data, botToken, 300); // 5 minutes
+  const res = await fetch(`${GO_BACKEND}/api/tma/auth`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    cache: 'no-store',
+  });
 
-    if (!valid || !data?.user) {
-      console.warn('[TMA] Invalid initData');
-      return NextResponse.json(
-        { error: 'invalid init_data' },
-        { status: 401 }
-      );
-    }
+  const data = await res.text();
+  const out = new NextResponse(data, { status: res.status });
 
-    const telegramId = data.user.id;
-    const firstName = data.user.first_name || 'User';
-    const username = data.user.username || '';
-
-    // Return user profile
-    // In a real implementation, you would:
-    // 1. Look up user in database by telegram_id
-    // 2. Create user if doesn't exist
-    // 3. Return user profile with balance, devices, etc.
-    return NextResponse.json({
-      telegram_id: telegramId,
-      first_name: firstName,
-      username: username,
-      devices: [],
-      total_usd: 0,
-      total_exra: 0,
-    });
-  } catch (error) {
-    console.error('[TMA] Auth error:', error);
-    return NextResponse.json(
-      { error: 'internal server error' },
-      { status: 500 }
-    );
+  for (const name of FORWARD_RES_HEADERS) {
+    const v = res.headers.get(name);
+    if (v) out.headers.set(name, v);
   }
+
+  return out;
 }

@@ -18,7 +18,7 @@ func hashAPIKey(key string) string {
 
 type Buyer struct {
 	ID         string    `json:"id"`
-	APIKey     string    `json:"api_key"`
+	APIKey     string    `json:"api_key,omitempty"` // only populated on CreateBuyer; omitted on lookup
 	Email      string    `json:"email"`
 	BalanceUSD float64   `json:"balance_usd"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -45,9 +45,9 @@ func CreateBuyer(email string) (*Buyer, error) {
 func GetBuyerByEmail(email string) (*Buyer, error) {
 	buyer := &Buyer{}
 	err := db.DB.QueryRow(
-		`SELECT id, api_key, email, balance_usd, created_at FROM buyers WHERE email = $1`,
+		`SELECT id, email, balance_usd, created_at FROM buyers WHERE email = $1`,
 		email,
-	).Scan(&buyer.ID, &buyer.APIKey, &buyer.Email, &buyer.BalanceUSD, &buyer.CreatedAt)
+	).Scan(&buyer.ID, &buyer.Email, &buyer.BalanceUSD, &buyer.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -56,10 +56,12 @@ func GetBuyerByEmail(email string) (*Buyer, error) {
 
 func GetBuyerByAPIKey(apiKey string) (*Buyer, error) {
 	buyer := &Buyer{}
+	// Do not SELECT api_key — the caller already has it; storing it back in Buyer
+	// would risk it leaking into logs or error responses.
 	err := db.DB.QueryRow(
-		`SELECT id, api_key, email, balance_usd, created_at FROM buyers WHERE api_key_hash = $1`,
+		`SELECT id, email, balance_usd, created_at FROM buyers WHERE api_key_hash = $1`,
 		hashAPIKey(apiKey),
-	).Scan(&buyer.ID, &buyer.APIKey, &buyer.Email, &buyer.BalanceUSD, &buyer.CreatedAt)
+	).Scan(&buyer.ID, &buyer.Email, &buyer.BalanceUSD, &buyer.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

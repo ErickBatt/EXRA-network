@@ -21,9 +21,47 @@ import (
 	"exra/models"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/gorilla/mux"
 )
+
+// ── G2 Sybil helpers ────────────────────────────────────────────────────────
+
+// extractClientIP returns the real client IP, preferring reverse-proxy headers.
+func extractClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		return strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// maskSubnet reduces an IP to its /24 (IPv4) or /48 (IPv6) prefix.
+// Returns "" for invalid IPs so callers can skip the check gracefully.
+func maskSubnet(ipStr string) string {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return ""
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		return fmt.Sprintf("%d.%d.%d.0/24", ip4[0], ip4[1], ip4[2])
+	}
+	ip6 := ip.To16()
+	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x::/48",
+		ip6[0], ip6[1], ip6[2], ip6[3], ip6[4], ip6[5])
+}
+
+// ── Auth helpers ─────────────────────────────────────────────────────────────
 
 func verifyInitDataOrReject(w http.ResponseWriter, initData string) *middleware.TMAInitDataParams {
 	if initData == "" {
@@ -189,13 +227,30 @@ func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sybil limit: max 5 linked devices per Telegram account.
+	// Sybil limit 1: max 5 linked devices per Telegram account.
 	var linkedCount int
 	if err := db.DB.QueryRow(
 		`SELECT COUNT(*) FROM tma_devices WHERE telegram_id=$1 AND status='linked'`, p.TelegramID,
 	).Scan(&linkedCount); err == nil && linkedCount >= 5 {
 		jsonError(w, "max 5 devices per Telegram account", http.StatusForbidden)
 		return
+	}
+
+	// Sybil limit 2 (G2): max 3 linked devices per /24 (IPv4) or /48 (IPv6) subnet.
+	// Prevents farm operators from registering hundreds of VMs from the same DC.
+	clientIP := extractClientIP(r)
+	subnet := maskSubnet(clientIP)
+	if subnet != "" {
+		var subnetCount int
+		_ = db.DB.QueryRow(
+			`SELECT COUNT(*) FROM tma_devices WHERE ip_subnet=$1 AND status='linked'`, subnet,
+		).Scan(&subnetCount)
+		if subnetCount >= 3 {
+			log.Printf("tma-link: G2 subnet block ip=%s subnet=%s tg=%d", clientIP, subnet, p.TelegramID)
+			jsonError(w, "too many devices registered from this network — contact support if incorrect",
+				http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	var exists bool
@@ -215,11 +270,12 @@ func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 
 	requestID := models.UUID()
 	_, err := db.DB.Exec(`
-		INSERT INTO tma_devices (telegram_id, device_id, status, request_id)
-		VALUES ($1, $2, 'pending', $3)
+		INSERT INTO tma_devices (telegram_id, device_id, status, request_id, linked_ip, ip_subnet)
+		VALUES ($1, $2, 'pending', $3, $4, $5)
 		ON CONFLICT (telegram_id, device_id) DO UPDATE
-		SET status = 'pending', request_id = EXCLUDED.request_id`,
-		p.TelegramID, req.DeviceID, requestID,
+		SET status = 'pending', request_id = EXCLUDED.request_id,
+		    linked_ip = EXCLUDED.linked_ip, ip_subnet = EXCLUDED.ip_subnet`,
+		p.TelegramID, req.DeviceID, requestID, clientIP, subnet,
 	)
 	if err != nil {
 		jsonError(w, "failed to initiate link: "+err.Error(), http.StatusInternalServerError)
@@ -537,4 +593,221 @@ func TmaRegisterPushToken(w http.ResponseWriter, r *http.Request) {
 func TmaLogout(w http.ResponseWriter, r *http.Request) {
 	middleware.ClearTMASession(w)
 	jsonResponse(w, map[string]string{"status": "logged_out"}, http.StatusOK)
+}
+
+// ── Worker Marketplace Listings ─────────────────────────────────────────────
+//
+// Workers list capacity from TMA; buyers browse via /api/marketplace/lots
+// (public, no auth). The two surfaces use different auth — dual-auth by design.
+
+// POST /api/tma/lots/create — create or reprice a marketplace listing.
+// Guards: TMAAuth cookie + device ownership + ≥3 PoP sessions (Sybil gate).
+func TmaCreateLot(w http.ResponseWriter, r *http.Request) {
+	tgID := middleware.TelegramIDFromContext(r)
+
+	var req struct {
+		DeviceID      string  `json:"device_id"`
+		PricePerGB    float64 `json:"price_per_gb"`
+		BandwidthMbps int     `json:"bandwidth_mbps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.PricePerGB <= 0 || req.PricePerGB >= 1000 {
+		jsonError(w, "price_per_gb must be between 0 and 1000", http.StatusBadRequest)
+		return
+	}
+	if req.BandwidthMbps <= 0 {
+		jsonError(w, "bandwidth_mbps must be positive", http.StatusBadRequest)
+		return
+	}
+
+	deviceID := requireDeviceOwnership(w, r, req.DeviceID)
+	if deviceID == "" {
+		return
+	}
+
+	// Frozen nodes cannot list — prevents rewarding bad actors.
+	var nodeStatus string
+	_ = db.DB.QueryRow(`SELECT COALESCE(status,'offline') FROM nodes WHERE device_id=$1`, deviceID).Scan(&nodeStatus)
+	if nodeStatus == "frozen" {
+		jsonError(w, "frozen devices cannot create listings", http.StatusForbidden)
+		return
+	}
+
+	// Sybil gate: require proven work before a listing goes live.
+	var popSessions int
+	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM pop_reward_events WHERE device_id=$1`, deviceID).Scan(&popSessions)
+	if popSessions < 3 {
+		jsonError(w, "device needs ≥3 completed PoP sessions before listing — earn trust first",
+			http.StatusForbidden)
+		return
+	}
+
+	var gearScore float64
+	var identityTier string
+	_ = db.DB.QueryRow(
+		`SELECT COALESCE(rs_mult,0.5), COALESCE(identity_tier,'anon') FROM nodes WHERE device_id=$1`,
+		deviceID,
+	).Scan(&gearScore, &identityTier)
+
+	var lotID string
+	err := db.DB.QueryRow(`
+		INSERT INTO worker_listings
+		    (telegram_id, device_id, price_per_gb, bandwidth_mbps,
+		     gear_score, identity_tier, pop_sessions, status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,'active')
+		ON CONFLICT (device_id) DO UPDATE SET
+		    telegram_id    = EXCLUDED.telegram_id,
+		    price_per_gb   = EXCLUDED.price_per_gb,
+		    bandwidth_mbps = EXCLUDED.bandwidth_mbps,
+		    gear_score     = EXCLUDED.gear_score,
+		    identity_tier  = EXCLUDED.identity_tier,
+		    pop_sessions   = EXCLUDED.pop_sessions,
+		    status         = 'active'
+		RETURNING id`,
+		tgID, deviceID, req.PricePerGB, req.BandwidthMbps, gearScore, identityTier, popSessions,
+	).Scan(&lotID)
+	if err != nil {
+		log.Printf("tma-lots: create tg=%d dev=%s: %v", tgID, deviceID, err)
+		jsonError(w, "failed to create listing", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]any{
+		"lot_id":        lotID,
+		"device_id":     deviceID,
+		"status":        "active",
+		"price_per_gb":  req.PricePerGB,
+		"gear_score":    gearScore,
+		"identity_tier": identityTier,
+		"pop_sessions":  popSessions,
+	}, http.StatusCreated)
+}
+
+// GET /api/tma/lots — worker's own listings (cookie-session).
+func TmaListMyLots(w http.ResponseWriter, r *http.Request) {
+	tgID := middleware.TelegramIDFromContext(r)
+
+	rows, err := db.DB.Query(`
+		SELECT wl.id, wl.device_id, wl.price_per_gb, wl.bandwidth_mbps,
+		       wl.gear_score, wl.identity_tier, wl.status, wl.pop_sessions, wl.updated_at,
+		       COALESCE(n.status,'offline') as node_status
+		FROM worker_listings wl
+		LEFT JOIN nodes n ON n.device_id = wl.device_id
+		WHERE wl.telegram_id = $1
+		ORDER BY wl.updated_at DESC`, tgID)
+	if err != nil {
+		jsonError(w, "failed to load listings", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type ListingRow struct {
+		ID            string  `json:"id"`
+		DeviceID      string  `json:"device_id"`
+		PricePerGB    float64 `json:"price_per_gb"`
+		BandwidthMbps int     `json:"bandwidth_mbps"`
+		GearScore     float64 `json:"gear_score"`
+		IdentityTier  string  `json:"identity_tier"`
+		Status        string  `json:"status"`
+		PopSessions   int     `json:"pop_sessions"`
+		UpdatedAt     string  `json:"updated_at"`
+		NodeStatus    string  `json:"node_status"`
+	}
+
+	var out []ListingRow
+	for rows.Next() {
+		var row ListingRow
+		if err := rows.Scan(
+			&row.ID, &row.DeviceID, &row.PricePerGB, &row.BandwidthMbps,
+			&row.GearScore, &row.IdentityTier, &row.Status,
+			&row.PopSessions, &row.UpdatedAt, &row.NodeStatus,
+		); err != nil {
+			log.Printf("tma-lots: scan err tg=%d: %v", tgID, err)
+			continue
+		}
+		out = append(out, row)
+	}
+	if out == nil {
+		out = []ListingRow{}
+	}
+	jsonResponse(w, map[string]any{"listings": out}, http.StatusOK)
+}
+
+// POST /api/tma/lots/{id}/pause — pause an active listing.
+func TmaPauseLot(w http.ResponseWriter, r *http.Request) {
+	tgID := middleware.TelegramIDFromContext(r)
+	lotID := mux.Vars(r)["id"]
+	if lotID == "" {
+		jsonError(w, "lot id required", http.StatusBadRequest)
+		return
+	}
+	res, err := db.DB.Exec(
+		`UPDATE worker_listings SET status='paused'
+		 WHERE id=$1 AND telegram_id=$2 AND status='active'`,
+		lotID, tgID,
+	)
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		jsonError(w, "listing not found or not active", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, map[string]string{"status": "paused"}, http.StatusOK)
+}
+
+// POST /api/tma/lots/{id}/resume — resume a paused listing.
+func TmaResumeLot(w http.ResponseWriter, r *http.Request) {
+	tgID := middleware.TelegramIDFromContext(r)
+	lotID := mux.Vars(r)["id"]
+	if lotID == "" {
+		jsonError(w, "lot id required", http.StatusBadRequest)
+		return
+	}
+	res, err := db.DB.Exec(
+		`UPDATE worker_listings SET status='active'
+		 WHERE id=$1 AND telegram_id=$2 AND status='paused'`,
+		lotID, tgID,
+	)
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		jsonError(w, "listing not found or not paused", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, map[string]string{"status": "active"}, http.StatusOK)
+}
+
+// DELETE /api/tma/lots/{id} — soft-delete a listing (status='deleted', never purged).
+// Immutable audit trail: deleted listings remain in DB for fraud investigation.
+func TmaDeleteLot(w http.ResponseWriter, r *http.Request) {
+	tgID := middleware.TelegramIDFromContext(r)
+	lotID := mux.Vars(r)["id"]
+	if lotID == "" {
+		jsonError(w, "lot id required", http.StatusBadRequest)
+		return
+	}
+	res, err := db.DB.Exec(
+		`UPDATE worker_listings SET status='deleted'
+		 WHERE id=$1 AND telegram_id=$2 AND status IN ('active','paused')`,
+		lotID, tgID,
+	)
+	if err != nil {
+		jsonError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		jsonError(w, "listing not found or already deleted", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, map[string]string{"status": "deleted"}, http.StatusOK)
 }

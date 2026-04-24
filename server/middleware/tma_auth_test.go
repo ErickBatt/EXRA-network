@@ -93,6 +93,33 @@ func TestVerifyTelegramInitData_TamperedHash(t *testing.T) {
 	}
 }
 
+func TestVerifyTelegramInitData_Accepts30MinOld(t *testing.T) {
+	os.Setenv("TELEGRAM_BOT_TOKEN", "test-token")
+	defer os.Unsetenv("TELEGRAM_BOT_TOKEN")
+
+	fields := map[string]string{
+		"auth_date": fmt.Sprintf("%d", time.Now().Add(-30*time.Minute).Unix()),
+		"user":      `{"id":42,"first_name":"Y","username":"y"}`,
+	}
+	if _, err := VerifyTelegramInitData(signInitData("test-token", fields)); err != nil {
+		t.Fatalf("30-min-old initData should be accepted within 1h TTL, got %v", err)
+	}
+}
+
+func TestVerifyTelegramInitData_Rejects90MinOld(t *testing.T) {
+	os.Setenv("TELEGRAM_BOT_TOKEN", "test-token")
+	defer os.Unsetenv("TELEGRAM_BOT_TOKEN")
+
+	fields := map[string]string{
+		"auth_date": fmt.Sprintf("%d", time.Now().Add(-90*time.Minute).Unix()),
+		"user":      `{"id":1,"first_name":"Z"}`,
+	}
+	_, err := VerifyTelegramInitData(signInitData("test-token", fields))
+	if !errors.Is(err, ErrTMAExpiredInitData) {
+		t.Fatalf("90-min-old initData must be rejected (TTL=1h), got %v", err)
+	}
+}
+
 func TestVerifyTelegramInitData_WrongBotToken(t *testing.T) {
 	os.Setenv("TELEGRAM_BOT_TOKEN", "server-token")
 	defer os.Unsetenv("TELEGRAM_BOT_TOKEN")

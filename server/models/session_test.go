@@ -1,6 +1,8 @@
 package models
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,8 +20,8 @@ func TestFinalizeSession_DoubleChargePrevention(t *testing.T) {
 
 	now := time.Now()
 	// Scenario: Session is ALREADY Billed.
-	rows := sqlmock.NewRows([]string{"id", "buyer_id", "node_id", "offer_id", "started_at", "ended_at", "bytes_used", "cost_usd", "locked_price_per_gb", "active", "billed"}).
-		AddRow(sessionID, buyerID, "node-1", nil, now, &now, 1024*1024*1024, 1.5, 1.5, false, true)
+	rows := sqlmock.NewRows([]string{"id", "buyer_id", "node_id", "offer_id", "started_at", "ended_at", "bytes_used", "worker_bytes_reported", "cost_usd", "locked_price_per_gb", "active", "billed"}).
+		AddRow(sessionID, buyerID, "node-1", nil, now, &now, 1024*1024*1024, int64(0), 1.5, 1.5, false, true)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .* FROM sessions").WithArgs(sessionID, buyerID).WillReturnRows(rows)
@@ -43,8 +45,8 @@ func TestFinalizeSession_InsufficientBalance(t *testing.T) {
 
 	now := time.Now()
 	// Session has $1.5 cost, not billed yet.
-	rows := sqlmock.NewRows([]string{"id", "buyer_id", "node_id", "offer_id", "started_at", "ended_at", "bytes_used", "cost_usd", "locked_price_per_gb", "active", "billed"}).
-		AddRow(sessionID, buyerID, "node-1", nil, now, nil, 1024*1024*1024, 1.5, 1.5, true, false)
+	rows := sqlmock.NewRows([]string{"id", "buyer_id", "node_id", "offer_id", "started_at", "ended_at", "bytes_used", "worker_bytes_reported", "cost_usd", "locked_price_per_gb", "active", "billed"}).
+		AddRow(sessionID, buyerID, "node-1", nil, now, nil, 1024*1024*1024, int64(0), 1.5, 1.5, true, false)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .* FROM sessions").WithArgs(sessionID, buyerID).WillReturnRows(rows)
@@ -72,8 +74,8 @@ func TestFinalizeSession_ZeroBytes(t *testing.T) {
 	buyerID := "buyer-1"
 	now := time.Now()
 
-	rows := sqlmock.NewRows([]string{"id", "buyer_id", "node_id", "offer_id", "started_at", "ended_at", "bytes_used", "cost_usd", "locked_price_per_gb", "active", "billed"}).
-		AddRow(sessionID, buyerID, "node-1", nil, now, nil, 0, 0, 1.5, true, false)
+	rows := sqlmock.NewRows([]string{"id", "buyer_id", "node_id", "offer_id", "started_at", "ended_at", "bytes_used", "worker_bytes_reported", "cost_usd", "locked_price_per_gb", "active", "billed"}).
+		AddRow(sessionID, buyerID, "node-1", nil, now, nil, int64(0), int64(0), 0.0, 1.5, true, false)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .* FROM sessions").WithArgs(sessionID, buyerID).WillReturnRows(rows)
@@ -89,4 +91,20 @@ func TestFinalizeSession_ZeroBytes(t *testing.T) {
 	assert.Equal(t, float64(0), sess.CostUSD)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestFinalizeSession_WorkerBytesSource guards that session.go SELECT includes
+// worker_bytes_reported column (source-level regression).
+func TestFinalizeSession_WorkerBytesSource(t *testing.T) {
+	src, err := os.ReadFile("session.go")
+	if err != nil {
+		t.Fatalf("cannot read session.go: %v", err)
+	}
+	text := string(src)
+	if !strings.Contains(text, "worker_bytes_reported") {
+		t.Fatal("E3 regression: session.go does not reference worker_bytes_reported")
+	}
+	if !strings.Contains(text, "WorkerBytesReported > session.BytesUsed") {
+		t.Fatal("E3 regression: FinalizeSession missing worker-bytes-floor cross-check")
+	}
 }
