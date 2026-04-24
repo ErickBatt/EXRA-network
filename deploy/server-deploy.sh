@@ -36,10 +36,10 @@ step() { echo -e "\n${YELLOW}=== $* ===${NC}"; }
 
 # ---- проверка файлов ----
 step "Проверка пакета"
-[ -f "${SCRIPT_DIR}/exra-server-linux" ] || fail "exra-server-linux не найден в ${SCRIPT_DIR}"
+[ -d "${SCRIPT_DIR}/server-src" ] || fail "server-src не найден в ${SCRIPT_DIR}"
 [ -f "${SCRIPT_DIR}/dashboard/server.js" ] || fail "dashboard/server.js не найден — неполный архив"
 [ -f "${SCRIPT_DIR}/landing/server.js" ] || fail "landing/server.js не найден — неполный архив"
-ok "Go binary: $(du -sh "${SCRIPT_DIR}/exra-server-linux" | cut -f1)"
+ok "Go source: $(du -sh "${SCRIPT_DIR}/server-src" | cut -f1)"
 ok "Dashboard:  $(du -sh "${SCRIPT_DIR}/dashboard" | cut -f1)"
 ok "Landing:    $(du -sh "${SCRIPT_DIR}/landing" | cut -f1)"
 
