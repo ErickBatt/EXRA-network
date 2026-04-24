@@ -119,6 +119,31 @@ func (c *Client) CloseSend() {
 	})
 }
 
+// verifyPopSignature validates the DID signature on a heartbeat/pong message.
+// Returns false (and logs the rejection reason) when:
+//   - signature or timestamp is missing
+//   - timestamp is stale (>5 min old) — replay protection
+//   - DID signature is invalid
+//
+// This is the mandatory gate for all PoP reward grants (E4 + pong-bypass fix).
+func verifyPopSignature(deviceID, pubKey string, timestamp int64, sig string) bool {
+	if sig == "" || timestamp == 0 {
+		log.Printf("[Security] PoP rejected device=%s: missing signature or timestamp", deviceID)
+		return false
+	}
+	ts := time.Unix(timestamp, 0)
+	if age := time.Since(ts); age > 5*time.Minute || age < -time.Minute {
+		log.Printf("[Security] PoP rejected device=%s: stale timestamp age=%v", deviceID, age)
+		return false
+	}
+	ok, err := middleware.VerifyDIDSignature(pubKey, fmt.Sprintf("%d", timestamp), sig)
+	if err != nil || !ok {
+		log.Printf("[Security] PoP rejected device=%s: invalid DID signature", deviceID)
+		return false
+	}
+	return true
+}
+
 // TrySend queues a message on c.Send without blocking. It returns false
 // if the channel is closed or full. Callers MUST use this instead of
 // `c.Send <- msg` anywhere a shutdown race is possible (AUDIT §1 C3).
@@ -152,13 +177,13 @@ func (c *Client) ReadPump() {
 
 	c.Conn.SetReadLimit(maxMessageSize)
 	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	// WS-level pong is a keepalive control frame only — no PoP reward.
+	// PoP is earned exclusively via signed "heartbeat" or "pong" JSON messages
+	// so that rewards require a verifiable DID signature (E4 / pong-bypass fix).
 	c.Conn.SetPongHandler(func(string) error {
 		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		if c.DeviceID != "" {
 			_, _ = models.UpsertWSNode(c.DeviceID, c.PubKey, c.IP, c.Country, "unknown", "", c.ASNOrg, true, "", 0, 0, 0, true, 0, c.DID)
-			if err := models.HeartbeatPoP(c.DeviceID, models.GetPopEmission()); err != nil {
-				log.Printf("[PoP] pong heartbeat failed device_id=%s err=%v", c.DeviceID, err)
-			}
 		}
 		return nil
 	})
@@ -259,28 +284,28 @@ func (c *Client) ReadPump() {
 				c.Send <- statusResp
 			}
 		case "heartbeat":
-			// Explicit heartbeat message from client → PoP tick.
+			// Signature is now MANDATORY — no signature = no PoP (E4 fix).
+			// The previous optional guard has been removed: a client that omits
+			// the field must be treated the same as one with a bad signature.
 			if c.DeviceID != "" {
-				// Verify signature if provided (Hardening)
-				if msg.Data.Signature != "" {
-					signMsg := fmt.Sprintf("%d", msg.Data.Timestamp)
-					ok, err := middleware.VerifyDIDSignature(c.PubKey, signMsg, msg.Data.Signature)
-					if err != nil || !ok {
-						log.Printf("[Security] Rejecting heartbeat from %s: invalid signature", c.DeviceID)
-						continue
-					}
+				if !verifyPopSignature(c.DeviceID, c.PubKey, msg.Data.Timestamp, msg.Data.Signature) {
+					continue
 				}
-				
 				_, _ = models.UpsertWSNode(c.DeviceID, c.PubKey, c.IP, c.Country, "unknown", "", c.ASNOrg, true, msg.Arch, msg.CPUCores, msg.VRAMMB, msg.RamMB, true, msg.PricePerGB, c.DID)
 				if err := models.HeartbeatPoP(c.DeviceID, models.GetPopEmission()); err != nil {
 					log.Printf("[PoP] heartbeat msg failed device_id=%s err=%v", c.DeviceID, err)
 				}
 			}
 		case "pong":
+			// App-level pong also requires a signed timestamp (pong-bypass fix).
+			// Without this gate any connected node could spam "pong" for free PoP.
 			if c.DeviceID != "" {
+				if !verifyPopSignature(c.DeviceID, c.PubKey, msg.Data.Timestamp, msg.Data.Signature) {
+					continue
+				}
 				_, _ = models.UpsertWSNode(c.DeviceID, c.PubKey, c.IP, c.Country, "unknown", "", c.ASNOrg, true, msg.Arch, msg.CPUCores, msg.VRAMMB, msg.RamMB, true, msg.PricePerGB, c.DID)
 				if err := models.HeartbeatPoP(c.DeviceID, models.GetPopEmission()); err != nil {
-					log.Printf("[PoP] pong replay failed device_id=%s err=%v", c.DeviceID, err)
+					log.Printf("[PoP] pong msg failed device_id=%s err=%v", c.DeviceID, err)
 				}
 			}
 		case "traffic":

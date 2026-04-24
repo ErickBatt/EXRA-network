@@ -10,6 +10,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestUsdToPlancks_RoundsCorrectly guards Fix #4 (F3): bare uint64 cast of
+// float64 arithmetic truncates, so 0.1*1e9 → 99_999_999 instead of 100_000_000.
+func TestUsdToPlancks_RoundsCorrectly(t *testing.T) {
+	cases := []struct {
+		usd      float64
+		expected uint64
+	}{
+		{0.1, 100_000_000},
+		{0.01, 10_000_000},
+		{0.001, 1_000_000},
+		{1.0, 1_000_000_000},
+		{10.5, 10_500_000_000},
+		{0.123456789, 123_456_789},
+	}
+	for _, tc := range cases {
+		got := usdToPlancks(tc.usd)
+		if got != tc.expected {
+			t.Errorf("usdToPlancks(%v) = %d, want %d", tc.usd, got, tc.expected)
+		}
+	}
+}
+
 func TestHashDistribution_Deterministic(t *testing.T) {
 	dist1 := map[string]float64{
 		"did:1": 10.5,

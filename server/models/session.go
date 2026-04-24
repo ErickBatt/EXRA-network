@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"exra/db"
+	"log"
 	"time"
 )
 
@@ -11,17 +12,18 @@ var ErrSessionNotFound = errors.New("session not found")
 var ErrInsufficientBuyerBalance = errors.New("insufficient buyer balance for final charge")
 
 type Session struct {
-	ID               string     `json:"id"`
-	BuyerID          string     `json:"buyer_id"`
-	NodeID           string     `json:"node_id"`
-	OfferID          *string    `json:"offer_id,omitempty"`
-	StartedAt        time.Time  `json:"started_at"`
-	EndedAt          *time.Time `json:"ended_at,omitempty"`
-	BytesUsed        int64      `json:"bytes_used"`
-	CostUSD          float64    `json:"cost_usd"`
-	LockedPricePerGB float64    `json:"locked_price_per_gb"`
-	Active           bool       `json:"active"`
-	Billed           bool       `json:"billed"`
+	ID                   string     `json:"id"`
+	BuyerID              string     `json:"buyer_id"`
+	NodeID               string     `json:"node_id"`
+	OfferID              *string    `json:"offer_id,omitempty"`
+	StartedAt            time.Time  `json:"started_at"`
+	EndedAt              *time.Time `json:"ended_at,omitempty"`
+	BytesUsed            int64      `json:"bytes_used"`
+	WorkerBytesReported  int64      `json:"worker_bytes_reported"`
+	CostUSD              float64    `json:"cost_usd"`
+	LockedPricePerGB     float64    `json:"locked_price_per_gb"`
+	Active               bool       `json:"active"`
+	Billed               bool       `json:"billed"`
 }
 
 func CreateSession(buyerID, nodeID string) (*Session, error) {
@@ -41,10 +43,10 @@ func CreateSession(buyerID, nodeID string) (*Session, error) {
 	err := db.DB.QueryRow(
 		`INSERT INTO sessions (buyer_id, node_id, locked_price_per_gb)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, buyer_id, node_id, offer_id, started_at, bytes_used, cost_usd, locked_price_per_gb, active, billed`,
+		 RETURNING id, buyer_id, node_id, offer_id, started_at, bytes_used, worker_bytes_reported, cost_usd, locked_price_per_gb, active, billed`,
 		buyerID, nodeID, lockedPrice,
 	).Scan(&session.ID, &session.BuyerID, &session.NodeID, &session.OfferID,
-		&session.StartedAt, &session.BytesUsed, &session.CostUSD, &session.LockedPricePerGB, &session.Active, &session.Billed)
+		&session.StartedAt, &session.BytesUsed, &session.WorkerBytesReported, &session.CostUSD, &session.LockedPricePerGB, &session.Active, &session.Billed)
 	return session, err
 }
 
@@ -57,13 +59,13 @@ func FinalizeSession(sessionID, buyerID string, additionalBytes int64, _ float64
 
 	session := &Session{}
 	err = tx.QueryRow(
-		`SELECT id, buyer_id, node_id, offer_id, started_at, ended_at, bytes_used, cost_usd, COALESCE(locked_price_per_gb, 1.50), active, billed
+		`SELECT id, buyer_id, node_id, offer_id, started_at, ended_at, bytes_used, worker_bytes_reported, cost_usd, COALESCE(locked_price_per_gb, 1.50), active, billed
 		 FROM sessions
 		 WHERE id = $1 AND buyer_id = $2
 		 FOR UPDATE`,
 		sessionID, buyerID,
 	).Scan(&session.ID, &session.BuyerID, &session.NodeID, &session.OfferID,
-		&session.StartedAt, &session.EndedAt, &session.BytesUsed, &session.CostUSD, &session.LockedPricePerGB, &session.Active, &session.Billed)
+		&session.StartedAt, &session.EndedAt, &session.BytesUsed, &session.WorkerBytesReported, &session.CostUSD, &session.LockedPricePerGB, &session.Active, &session.Billed)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, ErrSessionNotFound
@@ -106,6 +108,33 @@ func FinalizeSession(sessionID, buyerID string, additionalBytes int64, _ float64
 		).Scan(&session.EndedAt, &session.Active)
 		if err != nil {
 			return nil, false, err
+		}
+	}
+
+	// E3 cross-check: if the worker independently reported more bytes than the
+	// gateway measured, use the worker's higher figure for billing. This prevents
+	// an underreporting Gateway from leaving the worker underpaid. Log a warning
+	// whenever the two counts diverge by more than 10% so ops can investigate.
+	if session.WorkerBytesReported > session.BytesUsed {
+		log.Printf("[E3] session=%s gateway_bytes=%d worker_bytes=%d — billing worker count (higher)",
+			sessionID, session.BytesUsed, session.WorkerBytesReported)
+		overageBytes := session.WorkerBytesReported - session.BytesUsed
+		overageCost := float64(overageBytes) / (1024 * 1024 * 1024) * session.LockedPricePerGB
+		if err = tx.QueryRow(
+			`UPDATE sessions
+			 SET bytes_used = worker_bytes_reported,
+			     cost_usd   = cost_usd + $1
+			 WHERE id = $2
+			 RETURNING bytes_used, cost_usd`,
+			overageCost, sessionID,
+		).Scan(&session.BytesUsed, &session.CostUSD); err != nil {
+			return nil, false, err
+		}
+	} else if session.BytesUsed > 0 && session.WorkerBytesReported > 0 {
+		ratio := float64(session.WorkerBytesReported) / float64(session.BytesUsed)
+		if ratio < 0.9 || ratio > 1.1 {
+			log.Printf("[E3] session=%s byte count mismatch: gateway=%d worker=%d ratio=%.2f",
+				sessionID, session.BytesUsed, session.WorkerBytesReported, ratio)
 		}
 	}
 
@@ -163,7 +192,7 @@ func FinalizeSession(sessionID, buyerID string, additionalBytes int64, _ float64
 
 func GetBuyerSessions(buyerID string, limit int) ([]Session, error) {
 	rows, err := db.DB.Query(
-		`SELECT id, buyer_id, node_id, offer_id, started_at, ended_at, bytes_used, cost_usd, COALESCE(locked_price_per_gb, 1.50), active, billed
+		`SELECT id, buyer_id, node_id, offer_id, started_at, ended_at, bytes_used, worker_bytes_reported, cost_usd, COALESCE(locked_price_per_gb, 1.50), active, billed
 		 FROM sessions WHERE buyer_id = $1
 		 ORDER BY started_at DESC LIMIT $2`,
 		buyerID, limit,
@@ -177,7 +206,7 @@ func GetBuyerSessions(buyerID string, limit int) ([]Session, error) {
 	for rows.Next() {
 		var s Session
 		if err := rows.Scan(&s.ID, &s.BuyerID, &s.NodeID, &s.OfferID,
-			&s.StartedAt, &s.EndedAt, &s.BytesUsed, &s.CostUSD, &s.LockedPricePerGB, &s.Active, &s.Billed); err != nil {
+			&s.StartedAt, &s.EndedAt, &s.BytesUsed, &s.WorkerBytesReported, &s.CostUSD, &s.LockedPricePerGB, &s.Active, &s.Billed); err != nil {
 			return nil, err
 		}
 		sessions = append(sessions, s)

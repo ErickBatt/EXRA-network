@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"exra/db"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -141,13 +142,27 @@ func UpsertWSNode(deviceID, publicKey, ip, country, deviceType, tier, asnOrg str
 }
 
 func SetNodeOfflineByDeviceID(deviceID string) error {
-	_, err := db.DB.Exec(
-		`UPDATE nodes
-		 SET status = 'offline', active = false, last_seen = NOW()
-		 WHERE device_id = $1`,
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(
+		`UPDATE nodes SET status = 'offline', active = false, last_seen = NOW() WHERE device_id = $1`,
 		deviceID,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	// Fix #6: auto-pause marketplace listings so buyers don't see stale entries
+	// for devices that are offline. The worker must manually resume via the TMA.
+	if _, err = tx.Exec(
+		`UPDATE worker_listings SET status = 'paused', updated_at = NOW()
+		 WHERE device_id = $1 AND status = 'active'`,
+		deviceID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func AddNodeTrafficByDeviceID(deviceID string, bytes int64) error {
@@ -228,6 +243,20 @@ func AddNodeTrafficByDeviceID(deviceID string, bytes int64) error {
 		); err != nil {
 			return err
 		}
+	}
+	// E3 cross-check: accumulate worker-reported bytes on the active session
+	// for this node. FinalizeSession uses MAX(gateway_bytes, worker_bytes) so
+	// an underreporting Gateway cannot leave workers unpaid.
+	if _, err := tx.Exec(
+		`UPDATE sessions s
+		 SET worker_bytes_reported = worker_bytes_reported + $1
+		 FROM nodes n
+		 WHERE n.id = s.node_id
+		   AND n.device_id = $2
+		   AND s.active = true`,
+		bytes, deviceID,
+	); err != nil {
+		log.Printf("[E3] failed to update worker_bytes_reported device=%s: %v", deviceID, err)
 	}
 	return tx.Commit()
 }

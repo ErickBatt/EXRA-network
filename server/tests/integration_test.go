@@ -58,8 +58,11 @@ func TestMarketplaceIntegration(t *testing.T) {
 	mock.ExpectQuery("SELECT reward_usd").WillReturnRows(sqlmock.NewRows([]string{"reward_usd"}).AddRow(0.0)) 
 	mock.ExpectCommit()
 
-	// 3. SetNodeOfflineByDeviceID (called on WS close)
+	// 3. SetNodeOfflineByDeviceID (called on WS close) — now transactional (Fix #6)
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE nodes").WithArgs("test-worker-1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE worker_listings").WithArgs("test-worker-1").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 
 	// 1. Setup Hub and Handlers
 	h := hub.NewHub()

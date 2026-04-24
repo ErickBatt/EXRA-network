@@ -8,6 +8,7 @@ import (
 	"exra/peaq"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"os"
 	"sort"
@@ -19,6 +20,13 @@ import (
 	"github.com/centrifuge/go-substrate-rpc-client/v4/signature"
 	"github.com/centrifuge/go-substrate-rpc-client/v4/types"
 )
+
+// usdToPlancks converts a USD float64 amount to plancks (1e9 per USD).
+// math.Round is required: bare uint64 cast truncates, so 0.1*1e9 = 99_999_999
+// instead of 100_000_000, causing every tenth-cent payout to be 1 planck short.
+func usdToPlancks(usd float64) uint64 {
+	return uint64(math.Round(usd * 1_000_000_000))
+}
 
 // verifyProposalSignature validates an sr25519 signature produced by
 // signature.Sign(hashBytes, seed) in SaveOracleProposal. Verifies that
@@ -480,8 +488,7 @@ func TriggerBatchMint(batchDate string, hash string) {
 	for did, amount := range dist {
 		acc, err := types.NewAccountIDFromHexString(did)
 		if err == nil {
-			// USD→plancks: multiply by 1e9. Production path uses on-chain price oracle.
-			val := uint64(amount * 1_000_000_000)
+			val := usdToPlancks(amount)
 			claims = append(claims, peaq.ClaimEntry{
 				Account: *acc,
 				Net:     types.NewU128(*big.NewInt(0).SetUint64(val)),
