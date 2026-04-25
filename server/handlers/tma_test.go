@@ -30,14 +30,9 @@ func TestTmaWithdraw_AnonTaxAndTimelock(t *testing.T) {
 	amount := 10.0
 	const tgID int64 = 42
 
-	// 0. Ownership check runs first: SELECT EXISTS(SELECT 1 FROM tma_devices...)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM tma_devices`).
+	// 0. Ownership + DID in one JOIN (#4): SELECT n.did FROM tma_devices td JOIN nodes n ...
+	mock.ExpectQuery(`SELECT n\.did\s+FROM tma_devices td\s+JOIN nodes n`).
 		WithArgs(tgID, deviceID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	// 1. Mock DID lookup
-	mock.ExpectQuery(`SELECT did FROM nodes`).
-		WithArgs(deviceID).
 		WillReturnRows(sqlmock.NewRows([]string{"did"}).AddRow(did))
 
 	// 2. Mock ClaimPayout logic inside models

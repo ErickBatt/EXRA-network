@@ -32,11 +32,13 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 interface Device {
   device_id: string
-  balance_usd: number
-  exra_earned: number
+  pending_usd: number
+  batched_usd: number
   device_type: string
   country: string
   status: string
+  identity_tier: string
+  rs_mult: number
 }
 
 interface Listing {
@@ -57,8 +59,10 @@ interface Account {
   first_name: string
   username: string
   devices: Device[]
-  total_usd: number
-  total_exra: number
+  pending_usd: number
+  withdrawable_usd: number
+  total_earned_usd: number
+  global_pause: boolean
 }
 
 type Toast = { id: number; kind: "success" | "error" | "info"; text: string }
@@ -526,10 +530,10 @@ export default function TMAApp() {
 
         {/* HERO with bento-ticker */}
         <LavaHero
-          totalEarned={account.total_usd.toFixed(2)}
+          totalEarned={account.total_earned_usd.toFixed(2)}
           nodesOnline={onlineCount}
-          exraPrice={account.total_usd > 0 ? account.total_exra / account.total_usd : 1.5}
-          dailyRate={account.total_usd > 0 ? account.total_usd / 30 : 0}
+          exraPrice={1.5}
+          dailyRate={account.total_earned_usd > 0 ? account.total_earned_usd / 30 : 0}
           rank={account.telegram_id % 10000}
         />
 
@@ -538,10 +542,10 @@ export default function TMAApp() {
           <button
             className="cta-primary"
             onClick={() => { haptic("medium"); setShowWithdraw(true) }}
-            disabled={account.total_usd < 1}
+            disabled={account.withdrawable_usd < 1}
           >
             <ArrowUpRight size={17} strokeWidth={2.4} />
-            Withdraw ${account.total_usd.toFixed(2)}
+            Withdraw ${account.withdrawable_usd.toFixed(2)}
           </button>
           <button className="cta-icon-btn" onClick={handleRefresh} aria-label="Refresh">
             <RefreshCw size={16} strokeWidth={2.2} />
@@ -562,7 +566,7 @@ export default function TMAApp() {
             <div className="bal-head">
               <span className="bal-label">$EXRA earned</span>
             </div>
-            <div className="bal-val neon tnum">{account.total_exra.toFixed(2)}</div>
+            <div className="bal-val neon tnum">{account.total_earned_usd.toFixed(2)}</div>
             <div className="bal-sub">all-time</div>
             <Sparkline seed={`earned-${account.telegram_id}`} color="#67e8f9" />
           </motion.div>
@@ -576,7 +580,7 @@ export default function TMAApp() {
             <div className="bal-head">
               <span className="bal-label">Withdrawable</span>
             </div>
-            <div className="bal-val violet tnum">${account.total_usd.toFixed(2)}</div>
+            <div className="bal-val violet tnum">${account.withdrawable_usd.toFixed(2)}</div>
             <div className="bal-sub">ready to claim</div>
             <Sparkline seed={`usd-${account.telegram_id}`} color="#a78bfa" />
           </motion.div>
@@ -640,8 +644,8 @@ export default function TMAApp() {
                 </div>
                 <Sparkline seed={device.device_id} color={sparkColor} />
                 <div className="device-right">
-                  <div className="device-balance tnum">${device.balance_usd.toFixed(2)}</div>
-                  <div className="device-earned tnum">{device.exra_earned.toFixed(1)} $EXRA</div>
+                  <div className="device-balance tnum">${device.pending_usd.toFixed(2)}</div>
+                  <div className="device-earned tnum">{device.batched_usd.toFixed(1)} credits</div>
                 </div>
               </motion.div>
             )

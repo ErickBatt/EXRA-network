@@ -14,6 +14,7 @@ package handlers
 // telegram_id, which allowed cross-account balance reads and withdrawals.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"exra/db"
@@ -145,6 +146,7 @@ func writeAccountSummary(w http.ResponseWriter, telegramID int64, firstName, use
 		ORDER BY td.device_id ASC`, telegramID,
 	)
 	if err != nil {
+		log.Printf("tma-writeAccountSummary err: %v", err)
 		jsonError(w, "failed to load devices", http.StatusInternalServerError)
 		return
 	}
@@ -183,14 +185,13 @@ func writeAccountSummary(w http.ResponseWriter, telegramID int64, firstName, use
 	}
 
 	jsonResponse(w, map[string]any{
-		"telegram_id":        telegramID,
-		"first_name":         firstName,
-		"username":           username,
-		"devices":            devices,
-		"pending_usd":        totalPending,      // informational: not yet withdrawable
-		"withdrawable_usd":   totalBatched,      // applied batches only
-		"total_earned_usd":   totalPending + totalBatched,
-		"global_pause":       isPaused,
+		"first_name":       firstName,
+		"username":         username,
+		"devices":          devices,
+		"pending_usd":      totalPending,    // informational: not yet withdrawable
+		"withdrawable_usd": totalBatched,   // applied batches only
+		"total_earned_usd": totalPending + totalBatched,
+		"global_pause":     isPaused,
 	}, http.StatusOK)
 }
 
@@ -268,13 +269,28 @@ func TmaLinkDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #5: prevent approval spam targeting a single device from many TG accounts.
+	var pendingCount int
+	_ = db.DB.QueryRow(`
+		SELECT COUNT(*) FROM tma_devices
+		WHERE device_id=$1 AND status='pending' AND updated_at > NOW()-INTERVAL '1 hour'`,
+		req.DeviceID,
+	).Scan(&pendingCount)
+	if pendingCount >= 3 {
+		log.Printf("tma-link: device_id spam block device=%s tg=%d", req.DeviceID, p.TelegramID)
+		jsonError(w, "too many pending link requests for this device — try again later",
+			http.StatusTooManyRequests)
+		return
+	}
+
 	requestID := models.UUID()
 	_, err := db.DB.Exec(`
-		INSERT INTO tma_devices (telegram_id, device_id, status, request_id, linked_ip, ip_subnet)
-		VALUES ($1, $2, 'pending', $3, $4, $5)
+		INSERT INTO tma_devices (telegram_id, device_id, status, request_id, linked_ip, ip_subnet, updated_at)
+		VALUES ($1, $2, 'pending', $3, $4, $5, NOW())
 		ON CONFLICT (telegram_id, device_id) DO UPDATE
 		SET status = 'pending', request_id = EXCLUDED.request_id,
-		    linked_ip = EXCLUDED.linked_ip, ip_subnet = EXCLUDED.ip_subnet`,
+		    linked_ip = EXCLUDED.linked_ip, ip_subnet = EXCLUDED.ip_subnet,
+		    updated_at = NOW()`,
 		p.TelegramID, req.DeviceID, requestID, clientIP, subnet,
 	)
 	if err != nil {
@@ -311,6 +327,33 @@ func requireDeviceOwnership(w http.ResponseWriter, r *http.Request, deviceID str
 		return ""
 	}
 	return deviceID
+}
+
+// requireDeviceOwnershipAndDID verifies ownership and returns the associated DID
+// in a single JOIN — replaces the two-query pattern in TmaWithdraw (#4).
+func requireDeviceOwnershipAndDID(w http.ResponseWriter, r *http.Request, deviceID string) (string, string) {
+	if err := validateDeviceID(deviceID); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return "", ""
+	}
+	tgID := middleware.TelegramIDFromContext(r)
+	var did string
+	err := db.DB.QueryRow(`
+		SELECT n.did
+		FROM tma_devices td
+		JOIN nodes n ON n.device_id = td.device_id
+		WHERE td.telegram_id=$1 AND td.device_id=$2 AND td.status='linked'`,
+		tgID, deviceID,
+	).Scan(&did)
+	if err == sql.ErrNoRows {
+		jsonError(w, "device not linked to this Telegram account", http.StatusForbidden)
+		return "", ""
+	}
+	if err != nil {
+		jsonError(w, "ownership check failed", http.StatusInternalServerError)
+		return "", ""
+	}
+	return deviceID, did
 }
 
 // GET /api/tma/device?device_id=xxx — per-device detail (cookie-session + ownership).
@@ -430,6 +473,12 @@ func TmaStake(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, fmt.Sprintf("insufficient credits: 100 EXRA required, you have %.2f", batchedCredits), http.StatusPaymentRequired)
 		return
 	}
+	// #8: verify the DID is still bound to this device (guards against race or DID reuse).
+	var boundDevice string
+	if err := db.DB.QueryRow(`SELECT device_id FROM nodes WHERE did=$1`, did).Scan(&boundDevice); err != nil || boundDevice != deviceID {
+		jsonError(w, "DID is not bound to this device — cannot stake", http.StatusForbidden)
+		return
+	}
 	if err := models.UpgradeNodeToPeak(did, 100); err != nil {
 		jsonError(w, "staking failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -505,14 +554,12 @@ func TmaWithdraw(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "amount_usd and recipient_wallet are required", http.StatusBadRequest)
 		return
 	}
-	deviceID := requireDeviceOwnership(w, r, req.DeviceID)
+	// #4: single JOIN replaces requireDeviceOwnership + separate DID query.
+	deviceID, did := requireDeviceOwnershipAndDID(w, r, req.DeviceID)
 	if deviceID == "" {
 		return
 	}
-
-	var did string
-	err := db.DB.QueryRow(`SELECT did FROM nodes WHERE device_id = $1`, deviceID).Scan(&did)
-	if err != nil || did == "" {
+	if did == "" {
 		jsonError(w, "withdrawal failed: device has no associated PEAQ DID", http.StatusForbidden)
 		return
 	}
@@ -589,8 +636,11 @@ func TmaRegisterPushToken(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]string{"status": "registered"}, http.StatusOK)
 }
 
-// POST /api/tma/logout — clear cookie.
+// POST /api/tma/logout — revoke session token and clear cookie.
 func TmaLogout(w http.ResponseWriter, r *http.Request) {
+	if err := middleware.RevokeTMASession(r); err != nil {
+		log.Printf("tma-logout: revoke session err: %v", err)
+	}
 	middleware.ClearTMASession(w)
 	jsonResponse(w, map[string]string{"status": "logged_out"}, http.StatusOK)
 }

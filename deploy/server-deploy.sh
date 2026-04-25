@@ -131,6 +131,18 @@ if [ -d "${SCRIPT_DIR}/migrations" ]; then
   if [ ${#FAILED_MIGS[@]} -gt 0 ]; then
     warn "Миграции с предупреждениями: ${FAILED_MIGS[*]} (проверь вручную если важно)"
   fi
+
+  # Выдаём права app-пользователю на все таблицы/последовательности.
+  # Миграции запускаются от postgres, поэтому без GRANT app-user не имеет доступа.
+  DB_USER=$(grep -E "^SUPABASE_URL=" "${ENV_FILE}" | head -1 | sed -E 's|.*://([^:]+):.*|\1|')
+  DB_USER="${DB_USER:-exra}"
+  sudo -u postgres psql "${DB_NAME}" -q -c "
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
+  " && ok "Права выданы пользователю ${DB_USER} на все таблицы/последовательности" \
+    || warn "Не удалось выдать права — проверь вручную"
 else
   warn "Папка migrations/ отсутствует в пакете — пропускаю"
 fi

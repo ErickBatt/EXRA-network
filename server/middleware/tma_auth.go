@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -153,6 +154,7 @@ func IssueTMASession(w http.ResponseWriter, p *TMAInitDataParams) error {
 		Username:   p.Username,
 		FirstName:  p.FirstName,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.New().String(), // jti — required for revocation (#3)
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(TMASessionTTL)),
 			NotBefore: jwt.NewNumericDate(now),
@@ -195,6 +197,32 @@ func ClearTMASession(w http.ResponseWriter) {
 	})
 }
 
+// RevokeTMASession extracts the jti from the request cookie and writes it to
+// tma_revoked_sessions. TMAAuth will reject the token on future requests even
+// if it hasn't expired yet. Safe to call on missing/invalid cookies (no-op).
+func RevokeTMASession(r *http.Request) error {
+	cookie, err := r.Cookie(TMASessionCookie)
+	if err != nil || cookie.Value == "" {
+		return nil
+	}
+	claims := &TMAClaims{}
+	tok, err := jwt.ParseWithClaims(cookie.Value, claims, func(t *jwt.Token) (interface{}, error) {
+		return tmaSessionSecret(), nil
+	})
+	if err != nil || !tok.Valid || claims.RegisteredClaims.ID == "" {
+		return nil // token already invalid — nothing to blacklist
+	}
+	expiresAt := time.Now().Add(TMASessionTTL)
+	if claims.ExpiresAt != nil {
+		expiresAt = claims.ExpiresAt.Time
+	}
+	_, err = db.DB.Exec(
+		`INSERT INTO tma_revoked_sessions(jti, expires_at) VALUES($1,$2) ON CONFLICT DO NOTHING`,
+		claims.RegisteredClaims.ID, expiresAt,
+	)
+	return err
+}
+
 // TMAAuth middleware validates the session cookie and injects telegram_id into context.
 func TMAAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -210,8 +238,17 @@ func TMAAuth(next http.HandlerFunc) http.HandlerFunc {
 			}
 			return tmaSessionSecret(), nil
 		})
-		if err != nil || !tok.Valid || claims.TelegramID == 0 {
+		if err != nil || !tok.Valid || claims.TelegramID == 0 || claims.RegisteredClaims.ID == "" {
 			jsonError(w, "invalid tma session", http.StatusUnauthorized)
+			return
+		}
+		// #3: check revocation list — catches stolen cookies that were explicitly logged out.
+		var revoked bool
+		if err := db.DB.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM tma_revoked_sessions WHERE jti=$1 AND expires_at > NOW())`,
+			claims.RegisteredClaims.ID,
+		).Scan(&revoked); err != nil || revoked {
+			jsonError(w, "session revoked", http.StatusUnauthorized)
 			return
 		}
 		ctx := context.WithValue(r.Context(), TMATelegramIDKey, claims.TelegramID)

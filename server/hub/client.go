@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"exra/db"
 	"exra/metrics"
 	"exra/middleware"
 	"exra/models"
@@ -56,6 +57,7 @@ type Message struct {
 	// Link verification
 	Approved  *bool  `json:"approved,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+	HWHash    string `json:"hw_hash,omitempty"` // hardware fingerprint sent by Android on approval (#6)
 
 	// Hardware requirements for dispatcher
 	MinVRAMMB   int `json:"min_vram_mb,omitempty"`
@@ -349,8 +351,33 @@ func (c *Client) ReadPump() {
 			}
 		case "link_response":
 			if c.DeviceID != "" && msg.RequestID != "" && msg.Approved != nil {
-				log.Printf("[TMA] Link response received device_id=%s approved=%v req_id=%s", c.DeviceID, *msg.Approved, msg.RequestID)
+				log.Printf("[TMA] Link response received device_id=%s approved=%v req_id=%s hw_hash=%q",
+					c.DeviceID, *msg.Approved, msg.RequestID, msg.HWHash)
 				if *msg.Approved {
+					// #6: verify hardware fingerprint when Android provides one.
+					if msg.HWHash != "" {
+						var stored string
+						_ = db.DB.QueryRow(
+							`SELECT COALESCE(hw_fingerprint,'') FROM nodes WHERE device_id=$1`, c.DeviceID,
+						).Scan(&stored)
+						if stored != "" && stored != msg.HWHash {
+							// Fingerprint mismatch — device identity changed; reject the link.
+							log.Printf("[TMA] Fingerprint mismatch device_id=%s — rejecting link req_id=%s",
+								c.DeviceID, msg.RequestID)
+							if err := models.RejectTmaLink(msg.RequestID, c.DeviceID); err != nil {
+								log.Printf("[TMA] Failed to reject mismatched link: %v", err)
+							}
+							break
+						}
+						// First-time fingerprint registration — store it.
+						if stored == "" {
+							if _, err := db.DB.Exec(
+								`UPDATE nodes SET hw_fingerprint=$1 WHERE device_id=$2`, msg.HWHash, c.DeviceID,
+							); err != nil {
+								log.Printf("[TMA] Failed to store hw_fingerprint device_id=%s: %v", c.DeviceID, err)
+							}
+						}
+					}
 					if err := models.CompleteTmaLink(msg.RequestID, c.DeviceID); err != nil {
 						log.Printf("[TMA] Failed to complete link: %v", err)
 					}
