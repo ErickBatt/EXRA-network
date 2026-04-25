@@ -4,7 +4,7 @@
 > С 23 апреля 2026 whitepaper (`EXRA White Paper_ Sovereign DePIN Infrastructure.pdf`) — главный продуктовый документ проекта.
 > `AGENTS.md` — инженерный ledger: что реально реализовано в коде, что живёт только в ветках, и что ещё не production-ready.
 > При конфликте по статусу реализации выигрывают код, тесты и [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md).
-> Последнее обновление: 25 апреля 2026 (waitlist-форма на лендинге: Server Action + Supabase + Resend email-нотификации)
+> Последнее обновление: **26 апреля 2026 — v2.5.0** (Resident IP end-to-end, feeder audit active, IPv6 Sybil /48, F3 mint rounding, HRW matcher, parallel PoP worker, TMA P1 hardening)
 
 ---
 
@@ -49,17 +49,17 @@
 
 | Компонент | Статус | Что реально работает |
 |-----------|--------|---------------------|
-| Go сервер (core + gateway) | 🟡 ~88% impl / ~68% prod | `go test ./...` в `server` green; A1/A3/B2/B3/C1/C2/D1/D3/E1/E2(min fix)/F1/G3 закрыты кодом, но остаются TMA P1, buyer-side traffic cross-check, IPv6 farms и peaq bridge mismatch |
-| Android APK | 🟡 ~70% impl / ~55% prod | Peaq DID, WS, heartbeat, TunnelWorker, compute_result и новый toolchain есть; full production proof и завершённый anti-fraud path не доказаны |
-| Dashboard / Marketplace | 🟡 ~75% impl / ~60% prod | Marketplace, buyer auth, TMA pages и buyer-api proxy есть; часть hardening ещё живёт в branch-only коммитах и рабочем дереве |
+| Go сервер (core + gateway) | 🟢 ~95% impl / ~82% prod | `go test -count=1 ./...` green (все пакеты). E3 buyer-side cross-check, E4 mandatory PoP sig, G2 IPv6 /48 subnet, F3 mint rounding (roundExra 8dp), HRW matcher tiebreaker, parallel PoP worker (×8) — всё закрыто. Открыто: Go ↔ peaq bridge payload mismatch |
+| Android APK | 🟢 ~92% impl / ~85% prod | Resident IP tunnel end-to-end (правильные заголовки, sr25519 "substrate" context, двунаправленный pipe без data loss). Feeder audit активен (performFeederCheck → signed feeder_report). Live stats (tunnels, bytes, GearScore, credits) в UI. Emulator guard, BootReceiver, battery optimization. |
+| Dashboard / Marketplace | 🟡 ~75% impl / ~62% prod | Marketplace, buyer auth, TMA pages, buyer-api proxy, HRW node selection есть. Buyer-side hardening в `main`. |
 | TON смарт-контракт | 🗑️ Removed | Полностью заменено на PEAQ DePIN |
 | TON интеграция в Go | 🗑️ Removed | Полностью заменено на PEAQ DePIN |
 | peaq Pallet (Rust) | 🟡 ~85% impl / ~70% prod | `pallet_exra`, runtime wiring и тесты есть; реальная chain compatibility вне репо не доказана |
 | Go ↔ peaq bridge | 🟡 ~45% impl / ~25% prod | RPC client и mock E2E есть, но payload'ы в `server/peaq/peaq_client.go` не совпадают с текущим pallet API |
-| Migration Runner / Admin / Payouts | 🟡 ~80% impl / ~65% prod | Авто-накат миграций, admin payout flow, `mark-paid`, tx_hash audit trail и role auth есть |
-| Telegram Mini App backend | 🟡 ~75% impl / ~55% prod | Cookie-session и ownership checks есть; P1 по secret fallback, SameSite, revocation, fingerprint и DID uniqueness остаются |
+| Migration Runner / Admin / Payouts | 🟢 ~85% impl / ~72% prod | Авто-накат миграций, admin payout flow, `mark-paid`, tx_hash audit trail, role auth. Migration 029 (TMA hardening) применена. |
+| Telegram Mini App backend | 🟢 ~90% impl / ~78% prod | Cookie-session + TMAAuth. TMA P1 (#3–#8) закрыты: JWT revocation (jti + blacklist), JOIN ownership check, device-level rate limit (≥3/ч), fingerprint binding, telegram_id убран из `/auth`, DID uniqueness в TmaStake. |
 | Desktop агент | 🟡 ~30% impl / ~15% prod | Skeleton клиента, heartbeat, tunnel/compute simulation; далеко до production |
-| Dynamic Pricing | 🟡 ~80% impl / ~65% prod | Marketplace-фильтры и Avg Price работают, но общая buyer-security hardening ещё не вся в `main` |
+| Dynamic Pricing | 🟢 ~85% impl / ~72% prod | HRW fnv32a tiebreaker в matcher, Avg Price, фильтры по стране/тиру — всё в `main` |
 | Compute Tasks | 🟡 ~75% impl / ~55% prod | Dispatch/result path, ZK-light attestation и timeout monitor есть; продовая изоляция и экономика не доказаны |
 
 > Детальная сверка whitepaper ↔ main ↔ branch-only коммиты: [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md)
@@ -299,49 +299,36 @@ RESEND_API_KEY=re_...                         # опционально; email н
 
 ## 11. Известные долги (нужно сделать)
 
-### 🔴 Reality Audit (2026-04-23) — что реально открыто после сверки кода и веток
+### ✅ Закрыто на `main` по состоянию на 2026-04-26 (v2.5.0)
 
-**Полный тех-аудит:** [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md)
-**Исторический forensic-отчёт:** [AUDIT_MARKETPLACE_v2.4.1.md](AUDIT_MARKETPLACE_v2.4.1.md)
+**Полный тех-аудит (история):** [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md)
+**Forensic-отчёт:** [AUDIT_MARKETPLACE_v2.4.1.md](AUDIT_MARKETPLACE_v2.4.1.md)
 
-**Что реально подтверждено тестами на 2026-04-23:**
-- [x] `cd server && go test -count=1 ./...` — полностью green
-- [x] `server/gateway/stitch_test.go` — gateway green; A1/A3 не воспроизводятся
-- [x] `server/handlers/matcher_concurrency_test.go` — legacy proof для B1 переведён в skip при наличии `AtomicClaimNode`
-- [x] `server/hub/client_trust_test.go` — обновлён до regression-тестов по фактическому коду; universal canary hash больше не текущий баг
+**Тесты:** `go test -count=1 ./...` — green на всех пакетах (gateway, handlers, hub, middleware, models, tests).
 
-**Уже закрыто кодом на `main`, но старый AGENTS продолжал считать открытым:**
-- [x] **A1:** `gateway/sessions.go::Stitch` переведён на `sync.Once` + `done`
-- [x] **A3:** `gateway/bridge.go` выставляет `SetReadDeadline(90s)`
-- [x] **B2:** `handlers/matcher.go` использует формулу `0.5*RS + 0.25*uptime + 0.25*priceFitness`
-- [x] **B3:** `HoldBalance(...)` стоит до выдачи Gateway JWT
-- [x] **C1:** `hub.cleanupLoop` теперь TTL-per-entry, а не bulk reset
-- [x] **C2:** `subscribeRedis*` завёрнуты в reconnect loops
-- [x] **D1:** Gateway signing path ушёл от старого hardcoded fallback в matcher flow
-- [x] **D3:** `handlers/ws.go` использует origin whitelist через `WS_ALLOWED_ORIGINS`
-- [x] **E1:** `feeder_report` требует подпись через `VerifyDIDSignature`
-- [x] **E2:** universal canary literal убран; `CreateCanaryTask` генерирует per-task hash
-- [x] **F1:** `oracle.ProcessOracleProposal` теперь верифицирует подпись до consensus
-- [x] **G3:** gateway byte accounting и Redis billing settlement реализованы
+**Закрыто в sessions 2026-04-18 — 2026-04-26:**
+- [x] **A1/A3/B2/B3/C1/C2/D1/D3/E1/E2/F1/G3** — аудит v2.4.1 (18 апреля)
+- [x] **TMA P1 (#3–#8)** — JWT revocation (jti + `tma_revoked_sessions`), JOIN ownership check, device-level spam limit, fingerprint binding, telegram_id removed from `/auth`, DID uniqueness в TmaStake (коммит `921d50a6`, 25 апреля)
+- [x] **E3** — двухсторонний cross-check в `FinalizeSession`: worker > gateway → use worker; gateway > 2×worker → cap at worker (защита покупателя) (коммит `5b758171`)
+- [x] **E4** — `verifyPopSignature` обязателен для `heartbeat` и `pong`; WS-level pong без PoP-награды (подтверждено в `hub/client.go`)
+- [x] **G2 (IPv6 /48 Sybil)** — `toSubnetPrefix` в `fraud.go` и `feeder.go`: IPv4=/24 LIKE, IPv6=/48 `inet(ip) << $1::inet`
+- [x] **F3 (float truncation)** — `roundExra(v) = math.Round(v×1e8)/1e8` в `DistributeReward`; `effectiveAmount`, `referralReward`, `treasuryReward` округляются, `workerReward` = remainder
+- [x] **P2 HRW** — `calculateBidScore` + `fnv32a(sessionID+nodeID)/MaxUint32 × 0.05` tiebreaker; hot-node распределение
+- [x] **P2 Parallel PoP** — `StartPopWorker` с `semaphore(8)` вместо serial
+- [x] **Resident IP (Android P1)** — `TunnelWorker`: правильные заголовки `X-Device-ID/X-Device-Sig`, подпись только `sessionId`, ожидание обоих pipe-потоков (`done.size >= 2`)
+- [x] **sr25519 signing context** — `IdentityManager.signData` использует `"substrate"` context (совместимость с Go `schnorrkel.NewSigningContext`)
+- [x] **Feeder audit (Android P2)** — `feeder_audit` handler активен: `performFeederCheck` → подпись `"$assignmentId:$targetDeviceId:$verdict"` → `feeder_report`
+- [x] **Live stats UI (Android P2)** — Stats card (TUNNELS, PROXIED, GEARSCORE, CREDITS); `broadcastLocalStats` каждые 30s
+- [x] **targetDeviceID в feeder WS** — `BroadcastFeederTask` пробрасывает `target_device_id` в WS-пакет
 
-**Частично закрыто, но нельзя считать fully done:**
-- [~] **B1:** в production path есть `AtomicClaimNode(...)`, но нужен честный Redis-backed integration test
-- [~] **E3:** `hub/client.go` теперь clamp'ит worker-reported bytes через `MaxTrafficPerSec`, но buyer-side counter cross-check в `models/session.go::FinalizeSession` ещё не реализован
-- [~] **Canary anti-fraud:** серверный universal hash убран, но end-to-end binding к реальному proxy challenge и feeder-side traffic verification ещё требуют усиления
+**Остаётся открытым:**
+- [ ] **Go ↔ peaq bridge** — `server/peaq/peaq_client.go` payload'ы не совпадают с текущими `batch_mint/update_stats` extrinsic signatures pallet. Нужна live-chain сверка перед mainnet.
+- [ ] **B1 Redis integration test** — `AtomicClaimNode` в production path есть, но честного Redis-backed integration теста нет.
+- [ ] **G2-deep (ASN Sybil)** — ASN-level фермы (несколько /48 от одного AS) не детектируются без MaxMind/IPAPI интеграции.
+- [ ] **Canary end-to-end** — серверный hash убран, но binding к реальному proxy challenge + feeder-side traffic verification требуют усиления.
+- [ ] **Desktop агент** — skeleton, далеко до production.
 
-**Подтверждённо открыто на `main`:**
-- [ ] **TMA P1:** см. секцию 15 (`TMA_SESSION_SECRET` fallback, SameSite, revoke, fingerprint, DID uniqueness)
-- [ ] **E3 final hardening:** buyer-side traffic cross-check всё ещё отсутствует в `FinalizeSession`
-- [ ] **E4:** `toSubnet24` не покрывает IPv6 фермы
-- [ ] **Go ↔ peaq bridge:** `server/peaq/peaq_client.go` не совпадает с текущими `batch_mint/update_stats` extrinsic signatures pallet
-
-**Важные branch-only коммиты, которые ещё не надо потерять:**
-- [x] `claude/brave-lewin-2497be` уже поглощена `main`
-- [x] Ряд high-priority commits из `claude/bold-carson-9596fe`, `claude/happy-einstein-60e24d` и `claude/agitated-burnell-563cba` был перепроверен cherry-pick'ами в отдельной integration-ветке
-- [x] Большинство этих cherry-pick'ов оказались пустыми или конфликтовали только на уже обновлённых местах, то есть их содержательная часть уже присутствует в `main` или в текущем рабочем дереве
-- [ ] Отдельной «волшебной ветки», которая делает проект 100%, не найдено
-
-**Компоненты «бетон» (не трогать без причины):** `models/session.go::FinalizeSession`, `models/pop.go` (idempotencyKey), `models/fraud.go::FreezeNode`, `popChannel`, `DistributeReward`.
+**Компоненты «бетон» (не трогать без причины):** `models/session.go::FinalizeSession`, `models/pop.go` (`idempotencyKey`, `roundExra`, `DistributeReward`), `models/fraud.go::FreezeNode`, `popChannel`.
 
 ### MVP/Launch Блокеры (PEAQ Transition):
 - [x] **PEAQ:** Реализация peaq Pallet (Rust) для `pallet_exra` есть в репо.
@@ -432,25 +419,25 @@ go test -timeout 60s ./middleware/... ./models/... ./hub/... ./tests/...
 
 ---
 
-## 15. TMA Security — остаточные P1 (после hardening-PR 2026-04-18)
+## 15. TMA Security — P1 hardening (2026-04-25, коммит `921d50a6`)
 
-После закрытия P0 (cookie-session, initData TTL, ownership-checks, Sybil-лимит, rate-limit, удаление `X-Node-Secret` из прокси) остались **P1-риски**, которые нужно закрыть отдельными PR перед масштабированием аудитории TMA:
+После закрытия P0 (cookie-session, initData TTL, ownership-checks, Sybil-лимит, rate-limit, удаление `X-Node-Secret` из прокси) все **P1-риски закрыты** коммитом `921d50a6`:
 
-1. **`TMA_SESSION_SECRET` fallback** — [server/middleware/tma_auth.go:57-65](server/middleware/tma_auth.go) возвращает hardcoded dev-секрет при отсутствии env. **Fix:** `log.Fatal` если `GO_ENV=production` и `TMA_SESSION_SECRET` пуст. Деплой без него = все JWT подделываются.
+1. ✅ **`TMA_SESSION_SECRET` fallback** — `tma_auth.go` делает `log.Fatal` если `GO_ENV=production` и секрет пуст или равен дефолту.
 
-2. **SameSite=Strict ломает Telegram iOS WebView** — текущая `Strict` cookie может не передаваться в in-app браузере Telegram iOS. **Fix:** перевести на `SameSite=Lax` + явная проверка `Origin`/`Referer` на мутирующих эндпоинтах (`/withdraw`, `/stake`, `/link-device`).
+2. ✅ **SameSite=Strict → Lax + Origin check** — cookie переведена на `SameSite=Lax`; мутирующие эндпоинты (`/withdraw`, `/stake`, `/link-device`) проверяют `Origin`/`Referer`.
 
-3. **Нет revocation JWT** — утечка cookie = 24h окно без возможности отозвать. **Fix:** добавить `jti` claim + Redis-blacklist, либо таблицу `tma_sessions(sid, revoked_at)` с проверкой в `TMAAuth` middleware.
+3. ✅ **JWT revocation (jti + blacklist)** — `jti` в JWT claims; таблица `tma_revoked_sessions`; проверка в `TMAAuth` middleware. Migration 029 добавлена.
 
-4. **Ownership + DID lookup — два запроса вместо JOIN** — [tma.go](server/handlers/tma.go) делает `AssertDeviceOwnedByTelegram` + `SELECT did FROM nodes` последовательно. **Fix:** один запрос `JOIN tma_devices td ON td.device_id=n.device_id WHERE td.telegram_id=$1 AND td.status='linked'`.
+4. ✅ **Ownership + DID — один JOIN** — `requireDeviceOwnershipAndDID` делает один `JOIN tma_devices ON device_id ... WHERE telegram_id=$1 AND status='linked'`.
 
-5. **Approval-spam per-device** — текущий `ScopedRateLimit("tma-link", 0.05, 3)` per-IP легко обходится пулом IP для атаки на конкретный `device_id`. **Fix:** лимит «не более N pending approvals в час на device_id», независимо от источника.
+5. ✅ **Approval-spam per-device** — ≥3 pending approvals в час на `device_id` → 429, независимо от IP.
 
-6. **Fingerprint binding (Android ID + hw hash) — не реализован** — approval-flow НЕ сверяет `hw_hash` устройства с сохранённым в `nodes.hw_fingerprint`. Требование AGENTS.md §Security не выполнено. **Fix:** при WS-approval Android-клиент шлёт свежий fingerprint → сервер сверяет → mismatch = reject.
+6. ✅ **Fingerprint binding** — при WS `link_response` Android-клиент шлёт `hw_fingerprint`; сервер сверяет с `nodes.hw_fingerprint`; mismatch = reject.
 
-7. **`/auth` ответ содержит `telegram_id` в body** — после перехода на cookie это избыточная инфо-утечка. **Fix:** убрать поле из `writeAccountSummary`, клиент всё равно работает по сессии.
+7. ✅ **`telegram_id` убран из `/auth`** — поле удалено из `writeAccountSummary`.
 
-8. **`TmaStake` — нет гарантии уникальности DID** — если два `device_id` с одним DID окажутся привязаны к одному tg_id, возможен gamed-stake. **Fix:** `UNIQUE(did)` либо explicit check перед `UpgradeNodeToPeak`.
+8. ✅ **DID uniqueness в TmaStake** — explicit check перед `UpgradeNodeToPeak`; дублирование DID блокируется.
 
-**Env для прода (обязательно):** `TELEGRAM_BOT_TOKEN`, `TMA_SESSION_SECRET` (min 32 bytes random), `TMA_API_BASE`. При отсутствии любого — отказываться стартовать.
+**Env для прода (обязательно):** `TELEGRAM_BOT_TOKEN`, `TMA_SESSION_SECRET` (min 32 bytes random), `TMA_API_BASE`. При отсутствии любого сервер не стартует (log.Fatal).
 
