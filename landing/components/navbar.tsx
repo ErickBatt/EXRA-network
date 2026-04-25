@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { label: "Network", href: "#network" },
   { label: "How it works", href: "#how" },
-  { label: "Earn", href: "#earn" },
+  { label: "For Buyers", href: "#buyers" },
+  { label: "Download", href: "#download" },
   { label: "Tokenomics", href: "#tokenomics" },
-  { label: "Marketplace", href: "/marketplace" },
   { label: "Docs", href: "https://docs.exra.space", external: true },
 ];
 

@@ -33,7 +33,7 @@ const STEPS = [
     step: "04",
     title: "Earn $EXRA, withdraw from $1",
     body:
-      "50% of every paid byte goes to the worker. 10–30% to your referrer. Withdraw to TON, Solana or peaq — no minimums above $1.",
+      "50% of every paid byte goes to the worker. 10–30% to your referrer. Withdraw in USDT or $EXRA via peaq — minimum $1, no lock-up.",
   },
 ];
 

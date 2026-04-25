@@ -99,6 +99,13 @@ export function WhitepaperContent() {
 
           {/* Sticky TOC sidebar */}
           <aside className="hidden lg:block w-52 shrink-0 sticky top-28 self-start">
+            <Link
+              href="/"
+              className="flex items-center gap-2 text-sm text-ink-muted hover:text-neon transition-colors mb-6"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              На главную
+            </Link>
             <p className="text-xs font-semibold uppercase tracking-widest text-ink-dim mb-4">
               Содержание
             </p>
