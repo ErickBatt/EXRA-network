@@ -4,7 +4,7 @@
 > С 23 апреля 2026 whitepaper (`EXRA White Paper_ Sovereign DePIN Infrastructure.pdf`) — главный продуктовый документ проекта.
 > `AGENTS.md` — инженерный ledger: что реально реализовано в коде, что живёт только в ветках, и что ещё не production-ready.
 > При конфликте по статусу реализации выигрывают код, тесты и [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md).
-> Последнее обновление: 23 апреля 2026 (Reality Audit — ветки сверены, stale audit-тесты обновлены, `server/go test ./...` green)
+> Последнее обновление: 25 апреля 2026 (waitlist-форма на лендинге: Server Action + Supabase + Resend email-нотификации)
 
 ---
 
@@ -179,6 +179,16 @@ RS_mult = min(GS/500, 2.0)  // Anon max 0.5x
     /config              ← загрузка .env
     /db                  ← подключение к PostgreSQL
 
+  /landing               ← Next.js 15 лендинг (exra.space)
+    app/
+      page.tsx           ← компоновка секций
+      globals.css        ← design tokens + .form-input
+      actions/
+        waitlist.ts      ← Server Action: Supabase insert + Resend email
+    components/
+      waitlist-section.tsx ← форма Early Access (3 роли + Konami easter egg)
+      ...                ← остальные секции лендинга
+
   /android               ← Kotlin нода + peaq SDK (DID/WS)
   /dashboard             ← Next.js покупательский UI
   /desktop               ← (в разработке)
@@ -228,7 +238,7 @@ POST /api/payout/precheck → (Legacy)
 ## 8. Переменные окружения
 
 ```env
-# Сервер
+# ── Go-сервер (server/.env) ──────────────────────────────────────────────
 PORT=8080
 SUPABASE_URL=postgres://...
 REDIS_URL=redis://localhost:6379
@@ -251,6 +261,11 @@ EXRA_MAX_SUPPLY=1000000000
 POP_EMISSION_PER_HEARTBEAT=0.00005
 RATE_PER_GB=0.30
 EXRA_POLICY_FINALIZED=true
+
+# ── Лендинг (landing/.env.local) ────────────────────────────────────────
+SUPABASE_URL=https://<ref>.supabase.co        # REST API URL, не postgres://
+SUPABASE_SERVICE_ROLE_KEY=                    # service_role key (bypass RLS)
+RESEND_API_KEY=re_...                         # опционально; email на ilya.khotin@exra.space
 ```
 
 > **⚠️ Сервер выдаёт WARN при старте если секреты равны дефолтным значениям.**
@@ -336,6 +351,12 @@ EXRA_POLICY_FINALIZED=true
 - [~] **Anti-fraud:** Feeders и Canary реализованы на минимально рабочем уровне; следующий незакрытый шаг — end-to-end challenge binding и buyer-side traffic cross-check.
 - [x] **Timelock UI:** Добавить "24h Timelock bar" в UI для Anon-пользователей.
 - [x] **Payout:** Velocity limit (1/24h на DID). (Done 2026-04-16)
+
+### Лендинг
+- [x] Waitlist Early Access форма: 3 роли (Tester/Investor/Buyer), Konami-пасхалка Ghost Node, Server Action → Supabase + Resend. Миграция: `migrations/022_waitlist.sql`
+- [ ] Применить миграцию `022_waitlist.sql` в Supabase Dashboard
+- [ ] Добавить `RESEND_API_KEY` в прод-деплой лендинга (vercel env / docker env)
+- [ ] Верифицировать домен `exra.space` в Resend для отправки с `noreply@exra.space`
 
 ### Важные (Phase 2 & 3 Done)
 - [x] Marketplace: фильтр нод по стране/цене в `/api/nodes`
