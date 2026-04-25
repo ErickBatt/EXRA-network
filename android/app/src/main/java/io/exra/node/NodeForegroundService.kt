@@ -61,6 +61,11 @@ class NodeForegroundService : Service() {
                 val intent = Intent("io.exra.node.TIMELOCK_UPDATE")
                 intent.putExtra("payload", payload.toString())
                 sendBroadcast(intent)
+            },
+            onNodeStats = { payload ->
+                val intent = Intent("io.exra.node.NODE_STATS")
+                intent.putExtra("payload", payload.toString())
+                sendBroadcast(intent)
             }
         )
     }
@@ -84,22 +89,29 @@ class NodeForegroundService : Service() {
             var backoffMs = 1000L
             while (isActive) {
                 updateNotification("Node connected [Active]")
-                
+
                 // PoP Heartbeat loop (every 5 mins / 300s)
                 val heartbeatJob = launch {
                     while (isActive) {
                         try {
                             wsClient.sendPopHeartbeat()
-                        } catch (e: Exception) {
-                            // ignore or log
-                        }
+                        } catch (e: Exception) { /* ignore */ }
                         delay(300_000)
                     }
                 }
-                
+
+                // Local stats broadcast (every 30s)
+                val statsJob = launch {
+                    while (isActive) {
+                        delay(30_000)
+                        broadcastLocalStats()
+                    }
+                }
+
                 wsClient.connectAndRun()
-                
+
                 heartbeatJob.cancel()
+                statsJob.cancel()
                 updateNotification("Node disconnected. Retrying...")
                 delay(backoffMs)
                 backoffMs = (backoffMs * 2).coerceAtMost(30000L)
@@ -206,5 +218,12 @@ class NodeForegroundService : Service() {
     private fun getUserPricePerGB(): Double {
         val prefs = getSharedPreferences("Exra", Context.MODE_PRIVATE)
         return prefs.getFloat("user_price_per_gb", 0f).toDouble()
+    }
+
+    private fun broadcastLocalStats() {
+        val intent = Intent("io.exra.node.LOCAL_STATS")
+        intent.putExtra("active_tunnels", wsClient.getActiveTunnels())
+        intent.putExtra("bytes_proxied", wsClient.getTotalBytesProxied())
+        sendBroadcast(intent)
     }
 }

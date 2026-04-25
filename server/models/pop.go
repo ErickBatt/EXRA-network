@@ -17,7 +17,7 @@ import (
 
 // HubProvider decouples models from the hub package to prevent import cycles.
 type HubProvider interface {
-	BroadcastFeederTask(feederID string, assignmentID int64, targetIP string, targetPort int)
+	BroadcastFeederTask(feederID string, assignmentID int64, targetDeviceID, targetIP string, targetPort int)
 	SyncNodeToRedis(ctx context.Context, country, rsTier string, score float64, pubNodeJSON string) error
 	SetGlobalPause(active bool)
 	IsGlobalPause() bool
@@ -429,7 +429,7 @@ func processHeartbeatSynchronous(deviceID string, totalEmission float64) {
 				}
 				
 				log.Printf("[Feeder] Assigned %s to audit %s (assignment_id=%d)", assignment.FeederDeviceID, targetID, assignment.ID)
-				globalHub.BroadcastFeederTask(assignment.FeederDeviceID, assignment.ID, targetIP, targetPort)
+				globalHub.BroadcastFeederTask(assignment.FeederDeviceID, assignment.ID, targetID, targetIP, targetPort)
 			}(deviceID)
 		}
 	}

@@ -111,11 +111,29 @@ func FinalizeSession(sessionID, buyerID string, additionalBytes int64, _ float64
 		}
 	}
 
-	// E3 cross-check: if the worker independently reported more bytes than the
-	// gateway measured, use the worker's higher figure for billing. This prevents
-	// an underreporting Gateway from leaving the worker underpaid. Log a warning
-	// whenever the two counts diverge by more than 10% so ops can investigate.
-	if session.WorkerBytesReported > session.BytesUsed {
+	// E3 cross-check — two-sided:
+	//   Worker > gateway → use worker's higher count (prevents underreporting gateway underpaying worker).
+	//   Gateway > 2× worker → cap at worker count (prevents gateway overbilling buyer).
+	//   10–200% divergence → log for ops investigation but do not adjust.
+	if session.WorkerBytesReported > 0 && session.BytesUsed > session.WorkerBytesReported*2 {
+		// Buyer-side guard: gateway measured more than 2× what the worker reported.
+		// Cap billing at the worker's count to protect the buyer from overbilling.
+		log.Printf("[E3] session=%s GATEWAY OVERBILL: gateway=%d worker=%d — capping at worker bytes",
+			sessionID, session.BytesUsed, session.WorkerBytesReported)
+		cappedCost := float64(session.WorkerBytesReported) / (1024 * 1024 * 1024) * session.LockedPricePerGB
+		if err = tx.QueryRow(
+			`UPDATE sessions
+			 SET bytes_used = worker_bytes_reported,
+			     cost_usd   = $1
+			 WHERE id = $2
+			 RETURNING bytes_used, cost_usd`,
+			cappedCost, sessionID,
+		).Scan(&session.BytesUsed, &session.CostUSD); err != nil {
+			return nil, false, err
+		}
+	} else if session.WorkerBytesReported > session.BytesUsed {
+		// Worker-side guard: worker reports more bytes than gateway measured.
+		// Use worker's count so the worker is not underpaid.
 		log.Printf("[E3] session=%s gateway_bytes=%d worker_bytes=%d — billing worker count (higher)",
 			sessionID, session.BytesUsed, session.WorkerBytesReported)
 		overageBytes := session.WorkerBytesReported - session.BytesUsed

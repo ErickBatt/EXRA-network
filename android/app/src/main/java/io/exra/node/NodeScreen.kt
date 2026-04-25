@@ -11,6 +11,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "${bytes} B"
+    if (bytes < 1024 * 1024) return "%.1f KB".format(bytes / 1024.0)
+    if (bytes < 1024 * 1024 * 1024) return "%.2f MB".format(bytes / (1024.0 * 1024))
+    return "%.2f GB".format(bytes / (1024.0 * 1024 * 1024))
+}
+
 @Composable
 fun NodeScreen(
     deviceId: String,
@@ -18,6 +25,10 @@ fun NodeScreen(
     isRunning: Boolean,
     lockStatus: String,
     timelockProgress: Int,
+    activeTunnels: Int = 0,
+    bytesProxied: Long = 0L,
+    gearScore: Int = 0,
+    pendingCredits: String = "—",
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -56,11 +67,28 @@ fun NodeScreen(
 
             Spacer(Modifier.height(40.dp))
 
-            // Stats Card
+            // Identity card
             GlassCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("DEVICE ID", color = TextSecondary, fontSize = 10.sp)
                     Text(deviceId, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Network stats card
+            GlassCard {
+                Row(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    StatItem(label = "TUNNELS", value = activeTunnels.toString())
+                    StatItem(label = "PROXIED", value = formatBytes(bytesProxied))
+                    StatItem(label = "GEARSCORE", value = if (gearScore > 0) gearScore.toString() else "—")
+                    StatItem(label = "CREDITS", value = pendingCredits)
                 }
             }
 

@@ -29,30 +29,43 @@ import (
 // ── Sybil / IP density ───────────────────────────────────────────────────────
 
 // SybilSubnetPenalty returns the Gear Score multiplier reduction for a node
-// based on how many active nodes share its /24 subnet.
+// based on how many active nodes share its /24 subnet (IPv4) or /48 subnet (IPv6).
 //
-//	< 3 nodes on /24  → no penalty (1.0)
-//	3–9 nodes on /24  → 0.5× (datacenter cluster, but could be valid)
-//	10+ nodes on /24  → 0.1× (almost certainly a farm)
+//	< 3 nodes on subnet  → no penalty (1.0)
+//	3–9 nodes on subnet  → 0.5× (datacenter cluster, but could be valid)
+//	10+ nodes on subnet  → 0.1× (almost certainly a farm)
 func SybilSubnetPenalty(tx *sql.Tx, ip string) float64 {
 	if ip == "" {
 		return 1.0
 	}
-	subnet24 := toSubnet24(ip)
-	if subnet24 == "" {
+	subnet, isIPv6 := toSubnetPrefix(ip)
+	if subnet == "" {
 		return 1.0
 	}
+
+	var query string
+	var arg interface{}
+	if isIPv6 {
+		// Use PostgreSQL inet containment: works regardless of how IPv6 is stored.
+		query = `SELECT COUNT(*) FROM nodes
+			 WHERE active = true
+			   AND inet(ip) << $1::inet
+			   AND last_heartbeat > NOW() - INTERVAL '10 minutes'`
+		arg = subnet // "2001:db8::/48"
+	} else {
+		query = `SELECT COUNT(*) FROM nodes
+			 WHERE active = true
+			   AND ip LIKE $1
+			   AND last_heartbeat > NOW() - INTERVAL '10 minutes'`
+		arg = subnet + "%" // "1.2.3.%"
+	}
+
 	var count int
 	var err error
-	query := `SELECT COUNT(*) FROM nodes
-		 WHERE active = true
-		   AND ip LIKE $1
-		   AND last_heartbeat > NOW() - INTERVAL '10 minutes'`
-
 	if tx != nil {
-		err = tx.QueryRow(query, subnet24+"%").Scan(&count)
+		err = tx.QueryRow(query, arg).Scan(&count)
 	} else {
-		err = db.DB.QueryRow(query, subnet24+"%").Scan(&count)
+		err = db.DB.QueryRow(query, arg).Scan(&count)
 	}
 
 	if err != nil {
@@ -68,17 +81,21 @@ func SybilSubnetPenalty(tx *sql.Tx, ip string) float64 {
 	}
 }
 
-// toSubnet24 converts "1.2.3.4" → "1.2.3."
-func toSubnet24(ip string) string {
+// toSubnetPrefix extracts the subnet prefix used for Sybil detection.
+// IPv4: returns "/24" dotted prefix "1.2.3." and isIPv6=false.
+// IPv6: returns "/48" CIDR "2001:db8::/48" and isIPv6=true.
+func toSubnetPrefix(ip string) (prefix string, isIPv6 bool) {
 	parsed := net.ParseIP(ip)
 	if parsed == nil {
-		return ""
+		return "", false
 	}
-	parts := strings.Split(parsed.String(), ".")
-	if len(parts) != 4 {
-		return ""
+	if v4 := parsed.To4(); v4 != nil {
+		parts := strings.Split(v4.String(), ".")
+		return fmt.Sprintf("%s.%s.%s.", parts[0], parts[1], parts[2]), false
 	}
-	return fmt.Sprintf("%s.%s.%s.", parts[0], parts[1], parts[2])
+	mask := net.CIDRMask(48, 128)
+	network := parsed.Mask(mask)
+	return fmt.Sprintf("%s/48", net.IP(network).String()), true
 }
 
 // ── Node freeze ──────────────────────────────────────────────────────────────

@@ -21,11 +21,16 @@ import android.os.PowerManager
 import android.net.Uri
 import android.provider.Settings
 import org.json.JSONObject
+import androidx.compose.runtime.mutableLongStateOf
 
 class MainActivity : ComponentActivity() {
     private var isRunning by mutableStateOf(false)
     private var lockStatus by mutableStateOf("Identity: Anonymous")
     private var timelockProgress by mutableIntStateOf(0)
+    private var activeTunnels by mutableIntStateOf(0)
+    private var bytesProxied by mutableLongStateOf(0L)
+    private var gearScore by mutableIntStateOf(0)
+    private var pendingCredits by mutableStateOf("—")
     
     private fun checkEmulator(identityManager: IdentityManager) {
         if (identityManager.isEmulator()) {
@@ -89,19 +94,46 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val localStatsReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            activeTunnels = intent?.getIntExtra("active_tunnels", 0) ?: 0
+            bytesProxied = intent?.getLongExtra("bytes_proxied", 0L) ?: 0L
+        }
+    }
+
+    private val nodeStatsReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val payloadStr = intent?.getStringExtra("payload") ?: return
+            try {
+                val payload = JSONObject(payloadStr)
+                if (payload.has("gear_score")) gearScore = payload.optInt("gear_score", 0)
+                if (payload.has("pending_credits")) {
+                    val credits = payload.optDouble("pending_credits", 0.0)
+                    pendingCredits = "%.4f EXRA".format(credits)
+                }
+            } catch (e: Exception) { /* ignore */ }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         checkPermissions()
-        
+
         val timelockFilter = IntentFilter("io.exra.node.TIMELOCK_UPDATE")
         val linkFilter = IntentFilter("io.exra.node.LINK_REQUEST")
-        
+        val localStatsFilter = IntentFilter("io.exra.node.LOCAL_STATS")
+        val nodeStatsFilter = IntentFilter("io.exra.node.NODE_STATS")
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(timelockReceiver, timelockFilter, RECEIVER_NOT_EXPORTED)
             registerReceiver(linkRequestReceiver, linkFilter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(localStatsReceiver, localStatsFilter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(nodeStatsReceiver, nodeStatsFilter, RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(timelockReceiver, timelockFilter)
             registerReceiver(linkRequestReceiver, linkFilter)
+            registerReceiver(localStatsReceiver, localStatsFilter)
+            registerReceiver(nodeStatsReceiver, nodeStatsFilter)
         }
 
         val prefs = getSharedPreferences("Exra", Context.MODE_PRIVATE)
@@ -120,6 +152,10 @@ class MainActivity : ComponentActivity() {
                     isRunning = isRunning,
                     lockStatus = lockStatus,
                     timelockProgress = timelockProgress,
+                    activeTunnels = activeTunnels,
+                    bytesProxied = bytesProxied,
+                    gearScore = gearScore,
+                    pendingCredits = pendingCredits,
                     onStart = {
                         startNodeService()
                         isRunning = true
@@ -129,6 +165,7 @@ class MainActivity : ComponentActivity() {
                         isRunning = false
                         timelockProgress = 0
                         lockStatus = "Identity: Anonymous"
+                        activeTunnels = 0
                     }
                 )
             }
@@ -176,6 +213,8 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         unregisterReceiver(timelockReceiver)
         unregisterReceiver(linkRequestReceiver)
+        unregisterReceiver(localStatsReceiver)
+        unregisterReceiver(nodeStatsReceiver)
     }
 
     private fun checkPermissions() {

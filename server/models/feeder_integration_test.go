@@ -16,7 +16,7 @@ type mockHubProvider struct {
 	Broadcasted  bool
 }
 
-func (m *mockHubProvider) BroadcastFeederTask(feederID string, assignmentID int64, targetIP string, targetPort int) {
+func (m *mockHubProvider) BroadcastFeederTask(feederID string, assignmentID int64, targetDeviceID, targetIP string, targetPort int) {
 	m.FeederID = feederID
 	m.AssignmentID = assignmentID
 	m.Broadcasted = true

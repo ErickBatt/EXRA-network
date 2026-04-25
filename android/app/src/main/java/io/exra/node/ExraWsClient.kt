@@ -19,6 +19,8 @@ import java.time.format.DateTimeFormatter
 import java.time.ZoneOffset
 import android.util.Log
 import kotlin.random.Random
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class EXRAWsClient(
     private val wsUrl: String,
@@ -34,9 +36,17 @@ class EXRAWsClient(
     private val apiUrl: String,
     private val identityManager: PeaqIdentityWrapper,
     private val onLinkRequest: (String, String, String) -> Unit = { _, _, _ -> },
-    private val onStatusUpdate: (JSONObject) -> Unit = {}
+    private val onStatusUpdate: (JSONObject) -> Unit = {},
+    private val onNodeStats: (JSONObject) -> Unit = {}
 ) {
     private var ws: WebSocket? = null
+
+    // Live counters updated by TunnelWorker callbacks.
+    private val activeTunnels = AtomicInteger(0)
+    private val totalBytesProxied = AtomicLong(0)
+
+    fun getActiveTunnels(): Int = activeTunnels.get()
+    fun getTotalBytesProxied(): Long = totalBytesProxied.get()
 
     suspend fun connectAndRun() {
         val deviceId = deviceIdProvider()
@@ -86,13 +96,50 @@ class EXRAWsClient(
                             val sessionId = payload.optString("session_id")
                             val targetHost = payload.optString("target_host")
                             val targetPort = payload.optInt("target_port")
-                            
+
                             if (sessionId.isNotEmpty() && targetHost.isNotEmpty()) {
+                                val currentDeviceId = deviceIdProvider()
+                                activeTunnels.incrementAndGet()
                                 CoroutineScope(Dispatchers.IO).launch {
-                                    val worker = TunnelWorker(apiUrl, sessionId, targetHost, targetPort, identityManager)
+                                    val worker = TunnelWorker(
+                                        apiUrl, sessionId, targetHost, targetPort,
+                                        identityManager, currentDeviceId
+                                    ) { bytes ->
+                                        activeTunnels.decrementAndGet()
+                                        totalBytesProxied.addAndGet(bytes)
+                                    }
                                     worker.run()
                                 }
                             }
+                        }
+                        "feeder_audit" -> {
+                            val assignmentId = payload.optLong("assignment_id")
+                            val targetDeviceId = payload.optString("target_device_id")
+                            val targetIp = payload.optString("target_ip")
+                            val targetPort = payload.optInt("target_port", 8080)
+
+                            if (assignmentId > 0 && targetDeviceId.isNotEmpty() && targetIp.isNotEmpty()) {
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    val verdict = performFeederCheck(targetIp, targetPort)
+
+                                    // Sign "{assignmentId}:{targetDeviceId}:{verdict}" — matches server's
+                                    // VerifyDIDSignature(c.PubKey, signMsg, msg.Data.Signature) check in hub/client.go
+                                    val signPayload = "$assignmentId:$targetDeviceId:$verdict"
+                                    val sig = identityManager.sign(signPayload)
+
+                                    val report = JSONObject()
+                                        .put("type", "feeder_report")
+                                        .put("assignment_id", assignmentId)
+                                        .put("device_id", targetDeviceId)
+                                        .put("verdict", verdict)
+                                        .put("data", JSONObject().put("signature", sig))
+                                    webSocket.send(report.toString())
+                                    Log.i("EXRA", "[Feeder] Sent $verdict for assignment $assignmentId target $targetDeviceId")
+                                }
+                            }
+                        }
+                        "node_stats" -> {
+                            onNodeStats(payload)
                         }
                         "link_request" -> {
                             val tgUser = payload.optString("tg_user")

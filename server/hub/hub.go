@@ -404,20 +404,22 @@ func (h *Hub) subscribeRedisFeederAudit() {
 		pubsub := h.rc.Subscribe(context.Background(), "Exra:feeder_audit")
 		for msg := range pubsub.Channel() {
 			var cmd struct {
-				FeederID     string `json:"feeder_id"`
-				AssignmentID int64  `json:"assignment_id"`
-				TargetIP     string `json:"target_ip"`
-				TargetPort   int    `json:"target_port"`
+				FeederID       string `json:"feeder_id"`
+				AssignmentID   int64  `json:"assignment_id"`
+				TargetDeviceID string `json:"target_device_id"`
+				TargetIP       string `json:"target_ip"`
+				TargetPort     int    `json:"target_port"`
 			}
 			if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
 				continue
 			}
 			if client, ok := h.GetClient(cmd.FeederID); ok {
 				payload, _ := json.Marshal(map[string]interface{}{
-					"type":          "feeder_audit",
-					"assignment_id": cmd.AssignmentID,
-					"target_ip":     cmd.TargetIP,
-					"target_port":   cmd.TargetPort,
+					"type":             "feeder_audit",
+					"assignment_id":    cmd.AssignmentID,
+					"target_device_id": cmd.TargetDeviceID,
+					"target_ip":        cmd.TargetIP,
+					"target_port":      cmd.TargetPort,
 				})
 				select {
 				case client.Send <- payload:
@@ -432,23 +434,25 @@ func (h *Hub) subscribeRedisFeederAudit() {
 	}
 }
 
-func (h *Hub) BroadcastFeederTask(feederID string, assignmentID int64, targetIP string, targetPort int) {
+func (h *Hub) BroadcastFeederTask(feederID string, assignmentID int64, targetDeviceID, targetIP string, targetPort int) {
 	if h.rc != nil {
 		cmd := map[string]interface{}{
-			"feeder_id":     feederID,
-			"assignment_id": assignmentID,
-			"target_ip":     targetIP,
-			"target_port":   targetPort,
+			"feeder_id":        feederID,
+			"assignment_id":    assignmentID,
+			"target_device_id": targetDeviceID,
+			"target_ip":        targetIP,
+			"target_port":      targetPort,
 		}
 		b, _ := json.Marshal(cmd)
 		h.rc.Publish(context.Background(), "Exra:feeder_audit", b)
 	} else {
 		if client, ok := h.GetClient(feederID); ok {
 			payload, _ := json.Marshal(map[string]interface{}{
-				"type":          "feeder_audit",
-				"assignment_id": assignmentID,
-				"target_ip":     targetIP,
-				"target_port":   targetPort,
+				"type":             "feeder_audit",
+				"assignment_id":    assignmentID,
+				"target_device_id": targetDeviceID,
+				"target_ip":        targetIP,
+				"target_port":      targetPort,
 			})
 			select {
 			case client.Send <- payload:

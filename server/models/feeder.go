@@ -21,30 +21,47 @@ type FeederAssignment struct {
 }
 
 // AssignFeeder selects a candidate node to audit a target node.
-// logic: GS > 300 (rs_mult > 0.6), different /24 subnet, stake > 10 EXRA.
+// logic: GS > 300 (rs_mult > 0.6), different /24 (IPv4) or /48 (IPv6) subnet, stake > 10 EXRA.
 func AssignFeeder(targetDeviceID string) (*FeederAssignment, error) {
 	var targetIP string
 	err := db.DB.QueryRow(`SELECT COALESCE(ip, '') FROM nodes WHERE device_id = $1`, targetDeviceID).Scan(&targetIP)
 	if err != nil {
 		return nil, err
 	}
-	targetSubnet := toSubnet24(targetIP)
+	targetSubnet, targetIsIPv6 := toSubnetPrefix(targetIP)
 
-	// Select a random eligible feeder
+	// Select a random eligible feeder from a different subnet.
 	var feeder FeederAssignment
-	err = db.DB.QueryRow(`
-		SELECT device_id, ip
-		FROM nodes
-		WHERE device_id != $1
-		  AND active = true
-		  AND status != 'frozen'
-		  AND rs_mult > 0.6
-		  AND stake_exra >= 10
-		  AND ip NOT LIKE $2
-		ORDER BY RANDOM()
-		LIMIT 1`,
-		targetDeviceID, targetSubnet+"%",
-	).Scan(&feeder.FeederDeviceID, &feeder.FeederSubnet)
+	var feederIP string
+	if targetIsIPv6 {
+		err = db.DB.QueryRow(`
+			SELECT device_id, ip
+			FROM nodes
+			WHERE device_id != $1
+			  AND active = true
+			  AND status != 'frozen'
+			  AND rs_mult > 0.6
+			  AND stake_exra >= 10
+			  AND NOT (inet(ip) << $2::inet)
+			ORDER BY RANDOM()
+			LIMIT 1`,
+			targetDeviceID, targetSubnet,
+		).Scan(&feeder.FeederDeviceID, &feederIP)
+	} else {
+		err = db.DB.QueryRow(`
+			SELECT device_id, ip
+			FROM nodes
+			WHERE device_id != $1
+			  AND active = true
+			  AND status != 'frozen'
+			  AND rs_mult > 0.6
+			  AND stake_exra >= 10
+			  AND ip NOT LIKE $2
+			ORDER BY RANDOM()
+			LIMIT 1`,
+			targetDeviceID, targetSubnet+"%",
+		).Scan(&feeder.FeederDeviceID, &feederIP)
+	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -55,7 +72,7 @@ func AssignFeeder(targetDeviceID string) (*FeederAssignment, error) {
 
 	feeder.TargetDeviceID = targetDeviceID
 	feeder.TargetSubnet = targetSubnet
-	feeder.FeederSubnet = toSubnet24(feeder.FeederSubnet)
+	feeder.FeederSubnet, _ = toSubnetPrefix(feederIP)
 
 	err = db.DB.QueryRow(`
 		INSERT INTO feeder_assignments (target_device_id, feeder_device_id, target_subnet, feeder_subnet, expires_at)

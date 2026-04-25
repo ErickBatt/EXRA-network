@@ -163,8 +163,8 @@ class IdentityManager(private val context: Context) {
     fun signData(data: ByteArray): String {
         return try {
             val kp = keyPair ?: return ""
-            // Use the production-grade sign method
-            val signature = kp.signSimple("".toByteArray(), data)
+            // "substrate" matches the signing context used by Go schnorrkel (NewSigningContext("substrate", msg))
+            val signature = kp.signSimple("substrate".toByteArray(), data)
             Hex.toHexString(signature.toByteArray())
         } catch (e: Exception) {
             Log.e(TAG, "Production signing failed: ${e.message}")
