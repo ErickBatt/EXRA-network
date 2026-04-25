@@ -7,6 +7,8 @@ import (
 	"exra/middleware"
 	"exra/models"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -68,7 +70,11 @@ func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// 4. Score all candidates, sort desc. We need the full ranking (not just
+	// 4. Generate session ID before scoring so the HRW tiebreaker can use it
+	// as a per-session seed (deterministic spread across equal-quality nodes).
+	sessionID := fmt.Sprintf("sess_%d", time.Now().UnixNano())
+
+	// Score all candidates, sort desc. We need the full ranking (not just
 	// the argmax) so that if the top pick loses the atomic claim race we can
 	// fall back to the next best candidate in a single matcher pass. This is
 	// part of the AUDIT §1 B1 fix.
@@ -81,7 +87,7 @@ func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Requ
 		candidates = append(candidates, scoredCandidate{
 			node:    node,
 			rawJSON: nodeJSON,
-			score:   calculateBidScore(offer.Price, avgPrice, node),
+			score:   calculateBidScore(sessionID, offer.Price, avgPrice, node),
 		})
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
@@ -89,7 +95,6 @@ func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Requ
 	// 5. Atomic claim: remove the chosen node from the pool and write a TTL
 	// lease BEFORE issuing any JWT (AUDIT §1 B1). If the top pick is already
 	// leased by a concurrent matcher, fall through to the next best.
-	sessionID := fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	const claimTTL = 60 * time.Second
 	var bestNode models.PublicNode
 	var bestScore float64
@@ -185,10 +190,12 @@ func (h *MatcherHandler) CreateOfferAndMatch(w http.ResponseWriter, r *http.Requ
 // MASTER_PLAN/v2.4.1: 50% Reputation Score + 50% Latency/Geo. Because
 // per-node RTT telemetry is not yet collected, Latency/Geo is currently
 // approximated as 0.25*Uptime + 0.25*priceFitness where priceFitness is a
-// clamped ratio of offer.Price to the country's average. See AUDIT §1 B2 for
-// the finding that the previous 0.3 RS weight understated reputation and
-// that the 5% uniform jitter produced nondeterministic double-pickups.
-func calculateBidScore(offerPrice, avgPrice float64, node models.PublicNode) float64 {
+// clamped ratio of offer.Price to the country's average.
+//
+// A small HRW (Highest Random Weight) tiebreaker (≤5% of total score) is
+// added using fnv32a(sessionID+nodeDeviceID). This spreads load across
+// equivalently-scored nodes per session without overriding quality selection.
+func calculateBidScore(sessionID string, offerPrice, avgPrice float64, node models.PublicNode) float64 {
 	rsScore := node.RSScore / 1000.0
 	if rsScore < 0 {
 		rsScore = 0
@@ -216,5 +223,12 @@ func calculateBidScore(offerPrice, avgPrice float64, node models.PublicNode) flo
 		priceFitness = 1
 	}
 
-	return 0.5*rsScore + 0.25*uptimeScore + 0.25*priceFitness
+	baseScore := 0.5*rsScore + 0.25*uptimeScore + 0.25*priceFitness
+
+	// HRW tiebreaker: deterministic per-(session, node) hash in [0, 0.05].
+	h := fnv.New32a()
+	h.Write([]byte(sessionID + node.DeviceID))
+	hrw := float64(h.Sum32()) / math.MaxUint32 * 0.05
+
+	return baseScore + hrw
 }

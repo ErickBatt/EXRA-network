@@ -8,6 +8,7 @@ import (
 	"exra/db"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"sync"
 	"time"
@@ -201,7 +202,7 @@ func DistributeReward(tx *sql.Tx, deviceID string, amount float64, reason string
 
 	multiplier := epochMultiplier * rsMult * sybilPenalty * feederBoost
 
-	effectiveAmount := amount * multiplier
+	effectiveAmount := roundExra(amount * multiplier)
 
 	// Treasury fee is based on identity tier.
 	// Anon: 25%, Peak: 0%.
@@ -213,9 +214,12 @@ func DistributeReward(tx *sql.Tx, deviceID string, amount float64, reason string
 	if referrerDeviceID != "" {
 		refPct = ReferralPercent(referrerRefCount)
 	}
-	referralReward := effectiveAmount * refPct
-	treasuryReward := effectiveAmount * treasuryFeeRate
-	workerReward := effectiveAmount - treasuryReward - referralReward
+	// F3: round each stream to 8 decimal places before use to prevent float64
+	// drift from accumulating across millions of events. Worker takes the exact
+	// remainder so the three streams always sum to effectiveAmount without leakage.
+	referralReward := roundExra(effectiveAmount * refPct)
+	treasuryReward := roundExra(effectiveAmount * treasuryFeeRate)
+	workerReward := roundExra(effectiveAmount - treasuryReward - referralReward)
 	if workerReward < 0 {
 		workerReward = 0
 	}
@@ -332,6 +336,12 @@ func DistributeReward(tx *sql.Tx, deviceID string, amount float64, reason string
 	return eventID, nil
 }
 
+// roundExra rounds an EXRA amount to 8 decimal places to prevent float64
+// drift from accumulating across millions of reward events (F3).
+func roundExra(v float64) float64 {
+	return math.Round(v*1e8) / 1e8
+}
+
 func getCachedSupply(tx *sql.Tx) float64 {
 	supplyMu.Lock()
 	defer supplyMu.Unlock()
@@ -366,14 +376,22 @@ func HeartbeatPoP(deviceID string, totalEmission float64) error {
 	}
 }
 
+// popWorkerConcurrency controls how many heartbeats are processed in parallel.
+// Same-device collisions within the same minute are already deduplicated by
+// idempotencyKey (ON CONFLICT DO NOTHING), so parallel processing is safe.
+const popWorkerConcurrency = 8
+
 func StartPopWorker() {
+	sem := make(chan struct{}, popWorkerConcurrency)
 	go func() {
-		log.Println("[PoP] Starting background scaling worker...")
+		log.Println("[PoP] Starting background worker (concurrency=8)...")
 		for req := range popChannel {
-			// Process heartbeats one by one for now but using a dedicated worker
-			// to keep hub goroutines free. 
-			// Full batch SQL optimization would require record buffering here.
-			processHeartbeatSynchronous(req.DeviceID, req.Emission)
+			r := req
+			sem <- struct{}{}
+			go func() {
+				defer func() { <-sem }()
+				processHeartbeatSynchronous(r.DeviceID, r.Emission)
+			}()
 		}
 	}()
 }

@@ -52,8 +52,8 @@ func TestScoreFormula_RSWeightBelowSpec(t *testing.T) {
 
 	var sumHigh, sumLow float64
 	for i := 0; i < N; i++ {
-		sumHigh += calculateBidScore(offerPrice, avgPrice, nodeHighRS)
-		sumLow += calculateBidScore(offerPrice, avgPrice, nodeLowRS)
+		sumHigh += calculateBidScore("test-session", offerPrice, avgPrice, nodeHighRS)
+		sumLow += calculateBidScore("test-session", offerPrice, avgPrice, nodeLowRS)
 	}
 	avgDelta := (sumHigh - sumLow) / N
 
@@ -138,7 +138,7 @@ func TestMatcher_DeterministicBestPick_EnablesDoubleBooking(t *testing.T) {
 			bestScore := -1.0
 			bestID := ""
 			for _, n := range nodes {
-				s := calculateBidScore(offerPrice, avgPrc, n)
+				s := calculateBidScore("test-session", offerPrice, avgPrc, n)
 				if s > bestScore {
 					bestScore = s
 					bestID = n.ID
