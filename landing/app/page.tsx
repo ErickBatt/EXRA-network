@@ -6,6 +6,7 @@ import { Features } from "@/components/features";
 import { DownloadSection } from "@/components/download-section";
 import { Earnings } from "@/components/earnings";
 import { Tokenomics } from "@/components/tokenomics";
+import { WaitlistSection } from "@/components/waitlist-section";
 import { FinalCta } from "@/components/final-cta";
 import { Footer } from "@/components/footer";
 
@@ -21,6 +22,7 @@ export default function Page() {
         <DownloadSection />
         <Earnings />
         <Tokenomics />
+        <WaitlistSection />
         <FinalCta />
       </main>
       <Footer />

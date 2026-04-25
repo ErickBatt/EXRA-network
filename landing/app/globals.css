@@ -122,6 +122,30 @@
     -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 80%);
   }
 
+  /* Waitlist form inputs — dark glass style matching design system */
+  .form-input {
+    @apply w-full rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-ink-ghost;
+    @apply transition-colors duration-200;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .form-input:focus {
+    outline: none;
+    border-color: rgba(34, 211, 238, 0.45);
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.08);
+  }
+  select.form-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 38px;
+  }
+  select.form-input option {
+    background: #0d0d10;
+    color: #fafafa;
+  }
+
   /* Shimmer line for buttons / loading */
   .shimmer-line {
     background: linear-gradient(
