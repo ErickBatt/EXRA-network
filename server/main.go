@@ -148,8 +148,11 @@ func main() {
 	r.HandleFunc("/api/compute/jobs/{id}", middleware.BuyerAuth(handlers.GetTaskStatus)).Methods("GET")
 	r.HandleFunc("/api/compute/node/result", nodeAuth(handlers.SubmitComputeResult)).Methods("POST")
 	
-	// TMA Extra — cookie-session protected
-	r.HandleFunc("/api/tma/stake", middleware.TMAAuth(handlers.TmaStake)).Methods("POST")
+	// TMA Extra — cookie-session protected.
+	// TMARequireOrigin guards mutating endpoints against CSRF (cookie is
+	// SameSite=None for the Telegram iframe, so without an Origin gate any
+	// third-party site could POST with credentials).
+	r.HandleFunc("/api/tma/stake", middleware.TMARequireOrigin(middleware.TMAAuth(handlers.TmaStake))).Methods("POST")
 
 	// Pool system (Phase 3) — node auth required for mutations
 	r.HandleFunc("/api/pools", handlers.ListPools).Methods("GET")                       // public
@@ -163,22 +166,23 @@ func main() {
 	tmaAuthLimit := middleware.ScopedRateLimit("tma-auth", 0.5, 5)   // ~30/min per IP
 	tmaLinkLimit := middleware.ScopedRateLimit("tma-link", 0.05, 3)  // ~3/min per IP, anti-approval-spam
 	tmaLotLimit  := middleware.ScopedRateLimit("tma-lots", 0.1, 5)   // ~6/min per IP, anti-spam listing
-	r.HandleFunc("/api/tma/auth", tmaAuthLimit(handlers.TmaAuth)).Methods("POST")                            // public — verify initData, issue cookie
-	r.HandleFunc("/api/tma/logout", handlers.TmaLogout).Methods("POST")                                      // public — clear cookie
-	r.HandleFunc("/api/tma/link-device", tmaLinkLimit(handlers.TmaLinkDevice)).Methods("POST")               // public — signed initData in body
-	r.HandleFunc("/api/tma/session", middleware.TMAAuth(handlers.TmaMeSession)).Methods("GET")               // cookie session — account summary
-	r.HandleFunc("/api/tma/device", middleware.TMAAuth(handlers.TmaMe)).Methods("GET")                       // cookie + device ownership
-	r.HandleFunc("/api/tma/earnings", middleware.TMAAuth(handlers.TmaEarnings)).Methods("GET")               // cookie + device ownership
-	r.HandleFunc("/api/tma/withdraw", middleware.TMAAuth(handlers.TmaWithdraw)).Methods("POST")              // cookie + device ownership
-	r.HandleFunc("/api/tma/epoch", handlers.TmaEpoch).Methods("GET")                                         // public
-	r.HandleFunc("/api/tma/push-token", middleware.TMAAuth(handlers.TmaRegisterPushToken)).Methods("POST")   // cookie + device ownership
+	r.HandleFunc("/api/tma/auth", tmaAuthLimit(handlers.TmaAuth)).Methods("POST")                                                          // public — verify initData, issue cookie
+	r.HandleFunc("/api/tma/logout", handlers.TmaLogout).Methods("POST")                                                                    // public — clear cookie
+	r.HandleFunc("/api/tma/link-device", middleware.TMARequireOrigin(tmaLinkLimit(handlers.TmaLinkDevice))).Methods("POST")                // public — signed initData in body
+	r.HandleFunc("/api/tma/session", middleware.TMAAuth(handlers.TmaMeSession)).Methods("GET")                                             // cookie session — account summary
+	r.HandleFunc("/api/tma/device", middleware.TMAAuth(handlers.TmaMe)).Methods("GET")                                                     // cookie + device ownership
+	r.HandleFunc("/api/tma/earnings", middleware.TMAAuth(handlers.TmaEarnings)).Methods("GET")                                             // cookie + device ownership
+	r.HandleFunc("/api/tma/withdraw", middleware.TMARequireOrigin(middleware.TMAAuth(handlers.TmaWithdraw))).Methods("POST")               // cookie + device ownership + CSRF gate
+	r.HandleFunc("/api/tma/epoch", handlers.TmaEpoch).Methods("GET")                                                                       // public
+	r.HandleFunc("/api/tma/push-token", middleware.TMARequireOrigin(middleware.TMAAuth(handlers.TmaRegisterPushToken))).Methods("POST")    // cookie + device ownership
 
 	// Worker marketplace listings — TMA-only write surface (workers); public read for buyers.
+	// All mutations are CSRF-gated via TMARequireOrigin.
 	r.HandleFunc("/api/tma/lots", middleware.TMAAuth(handlers.TmaListMyLots)).Methods("GET")
-	r.HandleFunc("/api/tma/lots/create", tmaLotLimit(middleware.TMAAuth(handlers.TmaCreateLot))).Methods("POST")
-	r.HandleFunc("/api/tma/lots/{id}/pause", middleware.TMAAuth(handlers.TmaPauseLot)).Methods("POST")
-	r.HandleFunc("/api/tma/lots/{id}/resume", middleware.TMAAuth(handlers.TmaResumeLot)).Methods("POST")
-	r.HandleFunc("/api/tma/lots/{id}", middleware.TMAAuth(handlers.TmaDeleteLot)).Methods("DELETE")
+	r.HandleFunc("/api/tma/lots/create", middleware.TMARequireOrigin(tmaLotLimit(middleware.TMAAuth(handlers.TmaCreateLot)))).Methods("POST")
+	r.HandleFunc("/api/tma/lots/{id}/pause", middleware.TMARequireOrigin(middleware.TMAAuth(handlers.TmaPauseLot))).Methods("POST")
+	r.HandleFunc("/api/tma/lots/{id}/resume", middleware.TMARequireOrigin(middleware.TMAAuth(handlers.TmaResumeLot))).Methods("POST")
+	r.HandleFunc("/api/tma/lots/{id}", middleware.TMARequireOrigin(middleware.TMAAuth(handlers.TmaDeleteLot))).Methods("DELETE")
 	// Public marketplace read — buyers browse, no auth required.
 	r.HandleFunc("/api/marketplace/lots", handlers.MarketplaceListLots).Methods("GET")
 	r.HandleFunc("/api/marketplace/lots/{id}", handlers.MarketplaceGetLot).Methods("GET")

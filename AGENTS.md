@@ -4,7 +4,7 @@
 > С 23 апреля 2026 whitepaper (`EXRA White Paper_ Sovereign DePIN Infrastructure.pdf`) — главный продуктовый документ проекта.
 > `AGENTS.md` — инженерный ledger: что реально реализовано в коде, что живёт только в ветках, и что ещё не production-ready.
 > При конфликте по статусу реализации выигрывают код, тесты и [docs/REALITY_AUDIT_2026-04-23.md](docs/REALITY_AUDIT_2026-04-23.md).
-> Последнее обновление: **26 апреля 2026 — v2.5.0** (Resident IP end-to-end, feeder audit active, IPv6 Sybil /48, F3 mint rounding, HRW matcher, parallel PoP worker, TMA P1 hardening)
+> Последнее обновление: **26 апреля 2026 — v2.5.1** (TMA earnings SQL fix, Android hw_hash отправка, CSRF Origin-gate, корректировка §15)
 
 ---
 
@@ -419,13 +419,13 @@ go test -timeout 60s ./middleware/... ./models/... ./hub/... ./tests/...
 
 ---
 
-## 15. TMA Security — P1 hardening (2026-04-25, коммит `921d50a6`)
+## 15. TMA Security — P1 hardening (2026-04-25, коммит `921d50a6` + 2026-04-26 v2.5.1)
 
-После закрытия P0 (cookie-session, initData TTL, ownership-checks, Sybil-лимит, rate-limit, удаление `X-Node-Secret` из прокси) все **P1-риски закрыты** коммитом `921d50a6`:
+После закрытия P0 (cookie-session, initData TTL, ownership-checks, Sybil-лимит, rate-limit, удаление `X-Node-Secret` из прокси) все **P1-риски закрыты**:
 
 1. ✅ **`TMA_SESSION_SECRET` fallback** — `tma_auth.go` делает `log.Fatal` если `GO_ENV=production` и секрет пуст или равен дефолту.
 
-2. ✅ **SameSite=Strict → Lax + Origin check** — cookie переведена на `SameSite=Lax`; мутирующие эндпоинты (`/withdraw`, `/stake`, `/link-device`) проверяют `Origin`/`Referer`.
+2. ✅ **CSRF: SameSite=None + `TMARequireOrigin`** — cookie остаётся `SameSite=None` (требование Telegram iframe; Lax не работает в cross-site frame). Защита перенесена на серверный Origin/Referer-whitelist (`TMA_ALLOWED_ORIGINS`). Мутирующие эндпоинты (`/withdraw`, `/stake`, `/link-device`, `/lots/*`, `/push-token`) обёрнуты в `TMARequireOrigin` (v2.5.1, 26 апреля). При пустом whitelist — WARN в лог, доступ открыт (dev-режим).
 
 3. ✅ **JWT revocation (jti + blacklist)** — `jti` в JWT claims; таблица `tma_revoked_sessions`; проверка в `TMAAuth` middleware. Migration 029 добавлена.
 
@@ -433,11 +433,15 @@ go test -timeout 60s ./middleware/... ./models/... ./hub/... ./tests/...
 
 5. ✅ **Approval-spam per-device** — ≥3 pending approvals в час на `device_id` → 429, независимо от IP.
 
-6. ✅ **Fingerprint binding** — при WS `link_response` Android-клиент шлёт `hw_fingerprint`; сервер сверяет с `nodes.hw_fingerprint`; mismatch = reject.
+6. ✅ **Fingerprint binding** — при WS `link_response` Android-клиент шлёт `hw_hash` (v2.5.1, 26 апреля: добавлено `IdentityManager.getHardwareFingerprint()` в `sendLinkResponse`); сервер сверяет с `nodes.hw_fingerprint`; mismatch = reject. Первое подключение записывает fingerprint.
 
 7. ✅ **`telegram_id` убран из `/auth`** — поле удалено из `writeAccountSummary`.
 
 8. ✅ **DID uniqueness в TmaStake** — explicit check перед `UpgradeNodeToPeak`; дублирование DID блокируется.
 
-**Env для прода (обязательно):** `TELEGRAM_BOT_TOKEN`, `TMA_SESSION_SECRET` (min 32 bytes random), `TMA_API_BASE`. При отсутствии любого сервер не стартует (log.Fatal).
+9. ✅ **TMA earnings SQL fix (v2.5.1, 26 апреля)** — `writeAccountSummary`, `TmaMe`, `TmaStake` использовали `oracle_batches.oracle_id = device_id` (сравнение device_id юзера с ID одного из 3 оракулов) → `batched_usd` всегда был 0, кнопка Withdraw disabled, апгрейд в Peak недостижим. Исправлено на `JOIN node_earnings e ON e.batch_id = b.id WHERE e.device_id = X AND b.status = 'applied'`.
+
+**Env для прода (обязательно):**
+- `TELEGRAM_BOT_TOKEN`, `TMA_SESSION_SECRET` (min 32 bytes random), `TMA_API_BASE` — без них сервер не стартует (`log.Fatal`).
+- `TMA_ALLOWED_ORIGINS` — comma-separated whitelist (например, `https://app.exra.space,https://exra.space`). Без него CSRF-защита не активна (только WARN). **Обязательно для production.**
 

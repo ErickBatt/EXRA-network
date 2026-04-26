@@ -223,6 +223,65 @@ func RevokeTMASession(r *http.Request) error {
 	return err
 }
 
+// tmaAllowedOrigins is the CSRF whitelist for TMA mutating endpoints.
+// Populated from TMA_ALLOWED_ORIGINS (comma-separated). The TMA cookie uses
+// SameSite=None (required for the Telegram iframe), so without this Origin
+// gate any third-party site could cross-site POST to /withdraw, /stake,
+// /link-device with credentials and the browser would attach the cookie.
+var tmaAllowedOrigins = func() map[string]struct{} {
+	raw := strings.TrimSpace(os.Getenv("TMA_ALLOWED_ORIGINS"))
+	if raw == "" {
+		return nil
+	}
+	set := make(map[string]struct{})
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			set[o] = struct{}{}
+		}
+	}
+	return set
+}()
+
+// TMARequireOrigin rejects mutating requests whose Origin (or Referer fallback)
+// is not in TMA_ALLOWED_ORIGINS. Reads (GET/HEAD/OPTIONS) are passed through.
+// In dev mode (whitelist unset) the check is bypassed with a warning log so
+// local testing still works.
+func TMARequireOrigin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next(w, r)
+			return
+		}
+		if tmaAllowedOrigins == nil {
+			log.Printf("[TMA] WARNING: TMA_ALLOWED_ORIGINS unset, skipping CSRF check on %s %s", r.Method, r.URL.Path)
+			next(w, r)
+			return
+		}
+		// Origin is preferred (always sent on cross-origin POST). Fall back to
+		// Referer for clients that strip Origin (rare but valid).
+		got := strings.TrimSpace(r.Header.Get("Origin"))
+		if got == "" {
+			if ref := strings.TrimSpace(r.Header.Get("Referer")); ref != "" {
+				if u, err := url.Parse(ref); err == nil {
+					got = u.Scheme + "://" + u.Host
+				}
+			}
+		}
+		if got == "" {
+			log.Printf("[TMA] CSRF block %s %s: missing Origin/Referer", r.Method, r.URL.Path)
+			jsonError(w, "missing origin", http.StatusForbidden)
+			return
+		}
+		if _, ok := tmaAllowedOrigins[got]; !ok {
+			log.Printf("[TMA] CSRF block %s %s: origin=%q not whitelisted", r.Method, r.URL.Path, got)
+			jsonError(w, "forbidden origin", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // TMAAuth middleware validates the session cookie and injects telegram_id into context.
 func TMAAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

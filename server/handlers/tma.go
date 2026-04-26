@@ -123,6 +123,11 @@ func TmaAuth(w http.ResponseWriter, r *http.Request) {
 
 // writeAccountSummary loads linked devices + totals and writes the JSON response.
 func writeAccountSummary(w http.ResponseWriter, telegramID int64, firstName, username string) {
+	// pending_usd: earnings still waiting for the next daily oracle batch (batch_id IS NULL).
+	// batched_usd: earnings whose batch has been applied on-chain — withdrawable.
+	// The previous version used `WHERE oracle_id = td.device_id` which compared
+	// the oracle signer's ID (3 oracles total) against the user's device_id, so
+	// batched_usd was always 0 and the Withdraw button stayed permanently disabled.
 	rows, err := db.DB.Query(`
 		SELECT td.device_id,
 		       COALESCE((
@@ -131,9 +136,10 @@ func writeAccountSummary(w http.ResponseWriter, telegramID int64, firstName, use
 		           WHERE e.device_id = td.device_id AND e.batch_id IS NULL
 		       ), 0) as pending_usd,
 		       COALESCE((
-		           SELECT SUM(total_credits)
-		           FROM oracle_batches
-		           WHERE oracle_id = td.device_id AND status = 'applied'
+		           SELECT SUM(e.earned_usd)
+		           FROM node_earnings e
+		           JOIN oracle_batches b ON b.id = e.batch_id
+		           WHERE e.device_id = td.device_id AND b.status = 'applied'
 		       ), 0) as batched_usd,
 		       COALESCE(n.device_type, ''),
 		       COALESCE(n.country, ''),
@@ -371,11 +377,16 @@ func TmaMe(w http.ResponseWriter, r *http.Request) {
 		deviceID,
 	).Scan(&pendingUSD)
 
+	// Same JOIN fix as writeAccountSummary: join through node_earnings.batch_id
+	// rather than comparing oracle_batches.oracle_id against device_id. We
+	// include both 'consensus' (signed but not yet on-chain) and 'applied'
+	// states because the per-device view shows the pipeline, not just claimable.
 	var batchedCredits float64
 	_ = db.DB.QueryRow(`
-		SELECT COALESCE(SUM(total_credits), 0)
-		FROM oracle_batches
-		WHERE oracle_id = $1 AND status IN ('consensus', 'applied')`,
+		SELECT COALESCE(SUM(e.earned_usd), 0)
+		FROM node_earnings e
+		JOIN oracle_batches b ON b.id = e.batch_id
+		WHERE e.device_id = $1 AND b.status IN ('consensus', 'applied')`,
 		deviceID,
 	).Scan(&batchedCredits)
 
@@ -452,14 +463,24 @@ func TmaStake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Same SQL bug as writeAccountSummary: the previous join used
+	// oracle_batches.oracle_id (one of 3 oracle signers) against device_id, so
+	// batchedCredits was always 0 and stake_for_peak (>=100 EXRA) was unreachable.
+	// Joining through node_earnings.batch_id gives this device's actual share
+	// of every applied batch.
 	var did, tier string
 	var batchedCredits float64
 	err := db.DB.QueryRow(`
-		SELECT n.did, n.identity_tier, COALESCE(SUM(b.total_credits), 0)
+		SELECT n.did,
+		       n.identity_tier,
+		       COALESCE((
+		           SELECT SUM(e.earned_usd)
+		           FROM node_earnings e
+		           JOIN oracle_batches b ON b.id = e.batch_id
+		           WHERE e.device_id = n.device_id AND b.status = 'applied'
+		       ), 0) AS batched
 		FROM nodes n
-		LEFT JOIN oracle_batches b ON b.oracle_id = n.device_id AND b.status = 'applied'
-		WHERE n.device_id = $1
-		GROUP BY n.did, n.identity_tier`, deviceID).Scan(&did, &tier, &batchedCredits)
+		WHERE n.device_id = $1`, deviceID).Scan(&did, &tier, &batchedCredits)
 
 	if err != nil || did == "" {
 		jsonError(w, "node not found or missing DID", http.StatusNotFound)

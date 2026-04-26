@@ -217,10 +217,15 @@ class EXRAWsClient(
     }
 
     fun sendLinkResponse(requestId: String, approved: Boolean) {
+        // hw_hash binds the Telegram link to this exact hardware: server compares
+        // it against nodes.hw_fingerprint and rejects mismatches (TMA P1 #6).
+        // Without this field a leaked device_id could be re-linked from a
+        // different physical device.
         val resp = JSONObject()
             .put("type", "link_response")
             .put("request_id", requestId)
             .put("approved", approved)
+            .put("hw_hash", identityManager.getHardwareFingerprint())
         ws?.send(resp.toString())
     }
 
