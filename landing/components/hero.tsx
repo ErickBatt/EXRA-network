@@ -122,6 +122,11 @@ export function Hero() {
                 Buy bandwidth
               </Link>
             </Button>
+            <Button variant="ghost" size="lg" asChild>
+              <Link href="/whitepaper">
+                White Paper
+              </Link>
+            </Button>
           </motion.div>
 
           {/* Trust strip — matters for grant evaluators */}

@@ -137,7 +137,12 @@ class MainActivity : ComponentActivity() {
         }
 
         val prefs = getSharedPreferences("Exra", Context.MODE_PRIVATE)
-        val deviceId = prefs.getString("device_id", "Unknown") ?: "Unknown"
+        // Ensure device_id exists before the service starts so the UI shows it immediately.
+        val deviceId = prefs.getString("device_id", null) ?: run {
+            val generated = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("device_id", generated).apply()
+            generated
+        }
         val identityManager = IdentityManager(this)
 
         // Security & Stability Checks

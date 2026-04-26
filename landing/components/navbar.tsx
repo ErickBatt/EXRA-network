@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { label: "For Buyers", href: "#buyers" },
   { label: "Download", href: "#download" },
   { label: "Tokenomics", href: "#tokenomics" },
-  { label: "Docs", href: "https://docs.exra.space", external: true },
+  { label: "Docs", href: "/docs" },
 ];
 
 export function Navbar() {

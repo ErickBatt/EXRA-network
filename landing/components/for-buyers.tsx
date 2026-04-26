@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowRight, Globe2, ShieldCheck, Zap } from "lucide-react";
+import { ArrowRight, Globe2, ShieldCheck, Zap, BadgeDollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -23,6 +23,11 @@ const FEATURES = [
     icon: Zap,
     title: "REST + WebSocket API",
     body: "Pay per GB, no contracts. Filter by country, tier, and bandwidth. Auto-route to the fastest node.",
+  },
+  {
+    icon: BadgeDollarSign,
+    title: "15–50% below market rate",
+    body: "Real residential IPs at a fraction of competitor pricing. No datacenter markup — you pay only for actual bandwidth from real devices, settled on-chain.",
   },
 ];
 
